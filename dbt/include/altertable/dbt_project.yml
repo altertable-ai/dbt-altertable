@@ -1,0 +1,5 @@
+name: dbt_altertable
+version: 0.1
+config-version: 1
+
+macro-paths: ["macros"]

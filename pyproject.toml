@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbt-altertable"
+version = "0.1.0"
+description = "DBT adapter for Altertable"
+# readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "Altertable Team"}
+]
+keywords = ["dbt", "altertable", "adapter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "dbt-core>=1.5.0",
+    "dbt-adapters>=0.1.0",
+    "adbc_driver_manager>=0.1.0",
+    "adbc_driver_sqlite>=0.1.0",
+    "adbc_driver_flightsql>=0.1.0",
+    "pyarrow>=10.0.0",
+]
+
+[tool.setuptools]
+packages = [
+    "dbt.adapters.altertable",
+    "dbt.include.altertable",
+]
+
+[tool.setuptools.package-data]
+"dbt.adapters.altertable" = ["include/macros/**"]
