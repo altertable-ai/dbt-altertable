@@ -48,8 +48,8 @@ class AltertableCredentials(Credentials):
                 adbc_driver_manager.DatabaseOptions.PASSWORD.value: self.password,
             },
             "conn_kwargs": {
-                # adbc_driver_manager.ConnectionOptions.CURRENT_CATALOG.value: self.database,
-                # adbc_driver_manager.ConnectionOptions.CURRENT_DB_SCHEMA.value: self.schema,
+                adbc_driver_manager.ConnectionOptions.CURRENT_CATALOG.value: self.database,
+                adbc_driver_manager.ConnectionOptions.CURRENT_DB_SCHEMA.value: self.schema,
             },
         }
 

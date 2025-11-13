@@ -40,4 +40,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-"dbt.adapters.altertable" = ["include/macros/**"]
+"dbt.include.altertable" = [
+    "dbt_project.yml",
+    "macros/**",
+]
