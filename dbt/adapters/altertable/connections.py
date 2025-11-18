@@ -37,11 +37,11 @@ class AltertableCredentials(Credentials):
     def unique_field(self) -> str:
         return "host"
 
-    def _adbc_uri(self) -> str:
+    def adbc_uri(self) -> str:
         scheme = "grpc+tls" if self.tls else "grpc"
         return f"{scheme}://{self.host}:{self.port}"
 
-    def _adbc_options(self) -> Dict[str, Any]:
+    def adbc_options(self) -> Dict[str, Any]:
         options = {
             "db_kwargs": {
                 adbc_driver_manager.DatabaseOptions.USERNAME.value: self.username,
@@ -88,8 +88,8 @@ class AltertableConnectionManager(SQLConnectionManager):
             return connection
 
         def connect():
-            uri = connection.credentials._adbc_uri()
-            options = connection.credentials._adbc_options()
+            uri = connection.credentials.adbc_uri()
+            options = connection.credentials.adbc_options()
             # Enable autocommit to prevent ADBC from managing transactions
             # This allows dbt to handle transactions at the SQL level
             return adbc_driver_flightsql.dbapi.connect(uri, autocommit=True, **options)
