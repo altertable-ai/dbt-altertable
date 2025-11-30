@@ -4,40 +4,58 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dbt-altertable"
-version = "0.1.0"
+dynamic = ["version"]
 description = "DBT adapter for Altertable"
-# readme = "README.md"
-requires-python = ">=3.8"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
 authors = [
-    {name = "Altertable Team"}
+    {name = "Altertable Team", email = "leo@altertable.ai"}
 ]
-keywords = ["dbt", "altertable", "adapter"]
+keywords = ["dbt", "altertable", "adapter", "database", "duckdb"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
     "dbt-core>=1.5.0",
     "dbt-adapters>=0.1.0",
-    "adbc_driver_manager>=0.1.0",
-    "adbc_driver_sqlite>=0.1.0",
-    "adbc_driver_flightsql>=0.1.0",
-    "pyarrow>=10.0.0",
+    "altertable-flightsql>=0.2.1"
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "ruff>=0.14"
+]
+
+[project.urls]
+Homepage = "https://github.com/altertable/dbt-altertable"
+Repository = "https://github.com/altertable/dbt-altertable"
+Documentation = "https://github.com/altertable/dbt-altertable#readme"
+"Bug Tracker" = "https://github.com/altertable/dbt-altertable/issues"
 
 [tool.setuptools]
 packages = [
     "dbt.adapters.altertable",
     "dbt.include.altertable",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "dbt.adapters.altertable.__version__.version"}
+
+[tool.ruff]
+line-length = 100
 
 [tool.setuptools.package-data]
 "dbt.include.altertable" = [
