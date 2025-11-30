@@ -30,7 +30,7 @@
     select schema_name
     from system.information_schema.schemata
     {% if database is not none %}
-    where lower(catalog_name) = '{{ database | lower }}'
+    where lower(catalog_name) = '{{ database | lower | trim('"') }}'
     {% endif %}
   {% endset %}
   {{ return(run_query(sql)) }}
@@ -170,6 +170,13 @@ def materialize(df, con):
                                     "schema": none,
                                     "database": none
                                   })) -%}
+{% endmacro %}
+
+{% macro altertable__rename_relation(from_relation, to_relation) -%}
+  {% set target_name = adapter.quote_as_configured(to_relation.identifier, 'identifier') %}
+  {% call statement('rename_relation') -%}
+    alter {{ to_relation.type }} {{ from_relation }} rename to {{ target_name }}
+  {%- endcall %}
 {% endmacro %}
 
 {% macro altertable__current_timestamp() -%}

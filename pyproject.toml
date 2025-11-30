@@ -30,10 +30,7 @@ classifiers = [
 dependencies = [
     "dbt-core>=1.5.0",
     "dbt-adapters>=0.1.0",
-    "adbc_driver_manager>=0.1.0",
-    "adbc_driver_sqlite>=0.1.0",
-    "adbc_driver_flightsql>=0.1.0",
-    "pyarrow>=10.0.0",
+    "altertable-flightsql>=0.2.1"
 ]
 
 [project.optional-dependencies]
