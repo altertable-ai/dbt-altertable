@@ -40,9 +40,6 @@ your_profile_name:
 - **password** (required): Your Altertable password
 - **database** (required): Target database name
 - **schema** (required): Target schema name
-- **host** (optional): Flight SQL server hostname (default: `flight.altertable.ai`)
-- **port** (optional): Flight SQL server port, must be 0-65535 (default: `443`)
-- **tls** (optional): Enable TLS encryption (default: `true`)
 
 ## SQL Dialect
 
@@ -53,4 +50,3 @@ For DuckDB SQL reference, see: https://duckdb.org/docs/sql/introduction
 ## Credits
 
 This adapter is built upon the excellent work of the [dbt-duckdb](https://github.com/duckdb/dbt-duckdb) project.
-
