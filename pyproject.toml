@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dbt-altertable"
-version = "0.1.0"
+dynamic = ["version"]
 description = "DBT adapter for Altertable"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 authors = [
     {name = "Altertable Team", email = "leo@altertable.ai"}
@@ -16,7 +16,6 @@ keywords = ["dbt", "altertable", "adapter", "database", "duckdb"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -51,6 +50,9 @@ packages = [
     "dbt.adapters.altertable",
     "dbt.include.altertable",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "dbt.adapters.altertable.__version__.version"}
 
 [tool.ruff]
 line-length = 100

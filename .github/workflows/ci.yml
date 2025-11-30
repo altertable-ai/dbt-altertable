@@ -22,42 +22,39 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install isort black mypy
+          pip install '.[dev]'
 
-      - name: Run isort
+      - name: Run ruff
         run: |
-          isort --check-only --diff dbt/
+          ruff format --check .
+          ruff check .
 
-      - name: Run black
-        run: |
-          black --check --diff dbt/
-
-      - name: Run mypy
-        run: |
-          mypy dbt/
-
-  test:
-    name: Unit Tests (Python ${{ matrix.python-version }})
+  build:
+    name: Build Package
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
-
+    needs: [code-quality, test]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install build twine
 
-      - name: Run unit tests
-        run: |
-          pytest tests/unit/ -v
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
