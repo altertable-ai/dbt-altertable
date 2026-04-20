@@ -1,0 +1,45 @@
+name: main
+
+on:
+  push:
+    branches: [main]
+    paths: [altertable_analytics/**]
+  pull_request:
+    branches: [main]
+    paths: [altertable_analytics/**]
+
+concurrency:
+  group: main-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  check:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: altertable_analytics
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.16"
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install Python deps
+        run: uv sync
+
+      - name: dbt deps
+        run: uv run dbt deps
+
+      - name: pre-commit (all hooks)
+        run: uv run pre-commit run --all-files --show-diff-on-failure

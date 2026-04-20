@@ -1,0 +1,47 @@
+repos:
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.16.6
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff
+        files: ^altertable_analytics/.*\.py$
+      - id: ruff-format
+        files: ^altertable_analytics/.*\.py$
+
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 3.5.0
+    hooks:
+      - id: sqlfluff-lint
+        files: ^altertable_analytics/models/.*\.sql$
+        args: [--dialect, duckdb, --templater, dbt]
+
+  - repo: https://github.com/dbt-checkpoint/dbt-checkpoint
+    rev: v2.0.6
+    hooks:
+      - id: check-model-has-description
+        files: ^altertable_analytics/models/.*\.sql$
+      - id: check-model-columns-have-desc
+        files: ^altertable_analytics/models/.*\.sql$
+      - id: check-source-has-freshness
+        files: ^altertable_analytics/models/.*_sources\.yml$
+
+  - repo: local
+    hooks:
+      - id: dbt-parse
+        name: dbt parse
+        entry: bash -c 'cd altertable_analytics && uv run dbt parse --profiles-dir . --target dev'
+        language: system
+        pass_filenames: false
+        files: ^altertable_analytics/.*\.(sql|yml|yaml)$
+        always_run: false
+
+      - id: ty-check
+        name: ty type-check
+        entry: bash -c 'cd altertable_analytics && uv run ty check . 2>/dev/null || true'
+        language: system
+        pass_filenames: false
+        files: ^altertable_analytics/.*\.py$

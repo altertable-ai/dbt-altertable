@@ -1,0 +1,4 @@
+[default.extend-words]
+# Brand names the spell-checker mis-corrects
+Paradime = "Paradime"
+paradime = "paradime"

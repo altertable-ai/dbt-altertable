@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: [altertable_analytics/**, .github/workflows/release.yml]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-push:
+    name: build + push image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Compute image tags
+        id: vars
+        run: |
+          echo "sha_short=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # TODO(reviewer): match hndata's registry login (AWS ECR / GCP AR / generic).
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY_DOMAIN }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: altertable_analytics
+          file: altertable_analytics/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_DOMAIN }}/altertable-ai/altertable-analytics:${{ steps.vars.outputs.sha_short }}
+            ${{ github.event_name == 'release' && format('{0}/altertable-ai/altertable-analytics:{1}', secrets.REGISTRY_DOMAIN, steps.vars.outputs.version) || '' }}
+            ${{ github.event_name == 'release' && format('{0}/altertable-ai/altertable-analytics:latest', secrets.REGISTRY_DOMAIN) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

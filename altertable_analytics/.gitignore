@@ -1,0 +1,12 @@
+target/
+dbt_packages/
+logs/
+profiles.local.yml
+.env
+.env.*
+!.env.example
+.venv/
+*.duckdb
+*.duckdb.wal
+node_modules/
+.DS_Store

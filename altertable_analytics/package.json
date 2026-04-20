@@ -1,0 +1,13 @@
+{
+  "name": "altertable-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "dbt project entrypoint for the Altertable analytics CronJob.",
+  "scripts": {
+    "dbt:deps": "uv run dbt deps",
+    "dbt:seed": "uv run dbt seed --target prod",
+    "dbt:build": "uv run dbt build --target prod",
+    "dbt:parse": "uv run dbt parse --target prod",
+    "dbt:run": "bun run dbt:deps && bun run dbt:seed && bun run dbt:build"
+  }
+}

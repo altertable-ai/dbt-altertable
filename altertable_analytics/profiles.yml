@@ -1,0 +1,41 @@
+# Real credentials come from APP_PG_DSN_DEV / APP_PG_DSN env vars.
+# Placeholders let `dbt parse` validate without secrets.
+
+altertable_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "./target/dev.duckdb"
+      attach:
+        - path: "{{ env_var('APP_PG_DSN_DEV', 'postgres://placeholder:placeholder@localhost:5432/placeholder') }}"
+          type: postgres
+          alias: app_pg
+          read_only: true
+      extensions:
+        - postgres
+      threads: 4
+
+    ci:
+      type: duckdb
+      path: "./target/ci.duckdb"
+      attach:
+        - path: "{{ env_var('APP_PG_DSN_DEV', 'postgres://placeholder:placeholder@localhost:5432/placeholder') }}"
+          type: postgres
+          alias: app_pg
+          read_only: true
+      extensions:
+        - postgres
+      threads: 4
+
+    prod:
+      type: duckdb
+      path: ":memory:"
+      attach:
+        - path: "{{ env_var('APP_PG_DSN', 'postgres://placeholder:placeholder@localhost:5432/placeholder') }}"
+          type: postgres
+          alias: app_pg
+          read_only: true
+      extensions:
+        - postgres
+      threads: 8
