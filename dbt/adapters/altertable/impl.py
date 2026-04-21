@@ -1,5 +1,6 @@
-from dbt.adapters.altertable.connections import AltertableConnectionManager
 from dbt.adapters.sql import SQLAdapter
+
+from dbt.adapters.altertable.connections import AltertableConnectionManager
 
 
 class AltertableAdapter(SQLAdapter):
