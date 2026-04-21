@@ -2,7 +2,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import altertable_flightsql
 import pyarrow as pa
@@ -17,6 +17,9 @@ from dbt.adapters.sql.connections import SQLConnectionManager
 from dbt_common.exceptions import DbtRuntimeError
 from mashumaro.jsonschema.annotations import Maximum, Minimum
 
+if TYPE_CHECKING:
+    import agate
+
 logger = AdapterLogger("Altertable")
 
 
@@ -24,16 +27,19 @@ class AltertableCursor:
     """
     A PEP 249-compliant cursor wrapper around the altertable_flightsql Client.
 
-    This cursor provides the standard DB-API 2.0 interface that dbt expects,
-    translating calls to the altertable_flightsql client methods.
+    Results from the last ``execute()`` are kept as a ``pyarrow.Table``
+    (``cursor.table``) and converted to Python tuples on demand in ``fetch*``.
     """
 
     def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
-        self._results: list[tuple[Any, ...]] | None = None
-        self._description: list[tuple[str, Any, None, None, None, None, None]] | None = None
-        self._rowcount: int = -1
+        self._table: pa.Table | None = None
         self._cursor_position: int = 0
+
+    @property
+    def table(self) -> pa.Table | None:
+        """Arrow table from the last ``execute``, or ``None`` if no query has run."""
+        return self._table
 
     @property
     def description(
@@ -45,7 +51,11 @@ class AltertableCursor:
         Each sequence contains: (name, type_code, display_size, internal_size,
         precision, scale, null_ok). We only populate name and type_code.
         """
-        return self._description
+        if self._table is None:
+            return None
+        return [
+            (field.name, field.type, None, None, None, None, None) for field in self._table.schema
+        ]
 
     @property
     def rowcount(self) -> int:
@@ -54,7 +64,9 @@ class AltertableCursor:
 
         Returns -1 for SELECT statements or when count is unknown.
         """
-        return self._rowcount
+        if self._table is None:
+            return -1
+        return self._table.num_rows
 
     def execute(
         self,
@@ -72,9 +84,7 @@ class AltertableCursor:
         Returns:
             Self for method chaining.
         """
-        self._results = None
-        self._description = None
-        self._rowcount = -1
+        self._table = None
         self._cursor_position = 0
 
         logger.debug("Executing SQL: %s", sql)
@@ -82,28 +92,18 @@ class AltertableCursor:
             logger.debug("With bindings: %s", bindings)
             with self._client.prepare(sql) as stmt:
                 reader = stmt.query(parameters=bindings)
-                table = reader.read_all()
+                self._table = reader.read_all()
         else:
             reader = self._client.query(sql)
-            table = reader.read_all()
+            self._table = reader.read_all()
 
-        self._process_arrow_table(table)
         return self
 
-    def _process_arrow_table(self, table: pa.Table) -> None:
-        """Process an Arrow table into cursor results."""
-        self._description = [
-            (field.name, field.type, None, None, None, None, None) for field in table.schema
-        ]
-
-        columns = list(table.to_pydict().values())
-        if columns:
-            num_rows = len(columns[0])
-            self._results = [tuple(col[i] for col in columns) for i in range(num_rows)]
-        else:
-            self._results = []
-
-        self._rowcount = len(self._results)
+    def _slice_to_rows(self, offset: int, length: int) -> list[tuple[Any, ...]]:
+        if self._table is None or length <= 0:
+            return []
+        chunk = self._table.slice(offset, length).to_pylist()
+        return [tuple(row.values()) for row in chunk]
 
     def fetchone(self) -> tuple[Any, ...] | None:
         """
@@ -112,11 +112,11 @@ class AltertableCursor:
         Returns:
             A single row as a tuple, or None if no more rows.
         """
-        if self._results is None or self._cursor_position >= len(self._results):
+        if self._table is None or self._cursor_position >= self._table.num_rows:
             return None
-        row = self._results[self._cursor_position]
+        rows = self._slice_to_rows(self._cursor_position, 1)
         self._cursor_position += 1
-        return row
+        return rows[0]
 
     def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
         """
@@ -128,12 +128,12 @@ class AltertableCursor:
         Returns:
             List of rows as tuples.
         """
-        if self._results is None:
+        if self._table is None:
             return []
         if size is None:
             size = 1
-        end = min(self._cursor_position + size, len(self._results))
-        rows = self._results[self._cursor_position : end]
+        end = min(self._cursor_position + size, self._table.num_rows)
+        rows = self._slice_to_rows(self._cursor_position, end - self._cursor_position)
         self._cursor_position = end
         return rows
 
@@ -144,16 +144,17 @@ class AltertableCursor:
         Returns:
             List of all remaining rows as tuples.
         """
-        if self._results is None:
+        if self._table is None:
             return []
-        rows = self._results[self._cursor_position :]
-        self._cursor_position = len(self._results)
+        remaining = self._table.num_rows - self._cursor_position
+        rows = self._slice_to_rows(self._cursor_position, remaining)
+        self._cursor_position = self._table.num_rows
         return rows
 
     def close(self) -> None:
-        """Close the cursor and release any staged results."""
-        self._results = None
-        self._description = None
+        """Close the cursor and release the staged Arrow table."""
+        self._table = None
+        self._cursor_position = 0
 
     def __iter__(self) -> "AltertableCursor":
         """Allow iteration over results."""
@@ -275,3 +276,16 @@ class AltertableConnectionManager(SQLConnectionManager):
     @classmethod
     def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:
         return AdapterResponse(_message="OK")
+
+    @classmethod
+    def get_result_from_cursor(cls, cursor: AltertableCursor, limit: int | None) -> "agate.Table":
+        """Build an ``agate.Table`` from ``cursor.table``, applying ``limit`` if given."""
+        from dbt_common.clients.agate_helper import empty_table, table_from_data_flat
+
+        table = cursor.table
+        if table is None:
+            return empty_table()
+        if limit is not None and table.num_rows > limit:
+            table = table.slice(0, limit)
+        column_names = list(table.schema.names)
+        return table_from_data_flat(table.to_pylist(), column_names)
