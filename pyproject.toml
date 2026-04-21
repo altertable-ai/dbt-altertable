@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=65.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "dbt-altertable"
@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "DBT adapter for Altertable"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "Altertable Team", email = "leo@altertable.ai"}
 ]
@@ -18,47 +18,65 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
-    "dbt-core>=1.5.0",
-    "dbt-adapters>=0.1.0",
-    "altertable-flightsql>=0.2.1"
+    "dbt-core>=1.8,<2.0",
+    "dbt-adapters>=1.5,<2.0",
+    "altertable-flightsql>=0.2.1",
+    "pyarrow>=14",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
-    "ruff>=0.14"
+    "ruff>=0.15.11",
+    "ty>=0.0.32",
+    "pre-commit>=4.0",
+    "conventional-pre-commit>=4.4",
 ]
 
 [project.urls]
-Homepage = "https://github.com/altertable/dbt-altertable"
-Repository = "https://github.com/altertable/dbt-altertable"
-Documentation = "https://github.com/altertable/dbt-altertable#readme"
-"Bug Tracker" = "https://github.com/altertable/dbt-altertable/issues"
+Homepage = "https://github.com/altertable-ai/dbt-altertable"
+Repository = "https://github.com/altertable-ai/dbt-altertable"
+Documentation = "https://github.com/altertable-ai/dbt-altertable#readme"
+Changelog = "https://github.com/altertable-ai/dbt-altertable/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/altertable-ai/dbt-altertable/issues"
 
-[tool.setuptools]
-packages = [
-    "dbt.adapters.altertable",
-    "dbt.include.altertable",
+[tool.uv]
+required-version = ">=0.9"
+
+[tool.hatch.version]
+path = "dbt/adapters/altertable/__version__.py"
+pattern = "version = \"(?P<version>[^\"]+)\""
+
+[tool.hatch.build.targets.wheel]
+packages = ["dbt"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "dbt",
+    "README.md",
+    "LICENSE",
 ]
-
-[tool.setuptools.dynamic]
-version = {attr = "dbt.adapters.altertable.__version__.version"}
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["dist", "build"]
 
-[tool.setuptools.package-data]
-"dbt.include.altertable" = [
-    "dbt_project.yml",
-    "macros/**",
-]
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.src]
+include = ["dbt/adapters/altertable"]
+exclude = ["dist", "build", ".venv"]
+
+[tool.ty.rules]
+unresolved-import = "ignore"
