@@ -1,12 +1,11 @@
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
+from types import TracebackType
+from typing import Annotated, Any
 
 import altertable_flightsql
-from dbt_common.exceptions import DbtRuntimeError
-from mashumaro.jsonschema.annotations import Maximum, Minimum
-from typing_extensions import Annotated
-
+import pyarrow as pa
 from dbt.adapters.contracts.connection import (
     AdapterResponse,
     Connection,
@@ -15,6 +14,8 @@ from dbt.adapters.contracts.connection import (
 )
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql.connections import SQLConnectionManager
+from dbt_common.exceptions import DbtRuntimeError
+from mashumaro.jsonschema.annotations import Maximum, Minimum
 
 logger = AdapterLogger("Altertable")
 
@@ -27,17 +28,17 @@ class AltertableCursor:
     translating calls to the altertable_flightsql client methods.
     """
 
-    def __init__(self, client: altertable_flightsql.Client):
+    def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
-        self._results: Optional[List[Tuple[Any, ...]]] = None
-        self._description: Optional[List[Tuple[str, Any, None, None, None, None, None]]] = None
+        self._results: list[tuple[Any, ...]] | None = None
+        self._description: list[tuple[str, Any, None, None, None, None, None]] | None = None
         self._rowcount: int = -1
         self._cursor_position: int = 0
 
     @property
     def description(
         self,
-    ) -> Optional[List[Tuple[str, Any, None, None, None, None, None]]]:
+    ) -> list[tuple[str, Any, None, None, None, None, None]] | None:
         """
         PEP 249: Sequence of 7-item sequences describing result columns.
 
@@ -58,7 +59,7 @@ class AltertableCursor:
     def execute(
         self,
         sql: str,
-        bindings: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None,
+        bindings: Sequence[Any] | Mapping[str, Any] | None = None,
     ) -> "AltertableCursor":
         """
         Execute a SQL statement.
@@ -71,18 +72,14 @@ class AltertableCursor:
         Returns:
             Self for method chaining.
         """
-        # Reset state
         self._results = None
         self._description = None
         self._rowcount = -1
         self._cursor_position = 0
 
-        print("--------------------------------")
-        print(f"SQL: {sql}")
-        print(f"Bindings: {bindings}")
-        print("--------------------------------")
+        logger.debug("Executing SQL: %s", sql)
         if bindings is not None:
-            # Use prepared statement for parameterized queries
+            logger.debug("With bindings: %s", bindings)
             with self._client.prepare(sql) as stmt:
                 reader = stmt.query(parameters=bindings)
                 table = reader.read_all()
@@ -93,14 +90,12 @@ class AltertableCursor:
         self._process_arrow_table(table)
         return self
 
-    def _process_arrow_table(self, table) -> None:
+    def _process_arrow_table(self, table: pa.Table) -> None:
         """Process an Arrow table into cursor results."""
-        # Build description from schema
         self._description = [
             (field.name, field.type, None, None, None, None, None) for field in table.schema
         ]
 
-        # Convert Arrow table to list of tuples (row-oriented)
         columns = list(table.to_pydict().values())
         if columns:
             num_rows = len(columns[0])
@@ -110,7 +105,7 @@ class AltertableCursor:
 
         self._rowcount = len(self._results)
 
-    def fetchone(self) -> Optional[Tuple[Any, ...]]:
+    def fetchone(self) -> tuple[Any, ...] | None:
         """
         Fetch the next row of a query result.
 
@@ -123,12 +118,12 @@ class AltertableCursor:
         self._cursor_position += 1
         return row
 
-    def fetchmany(self, size: Optional[int] = None) -> List[Tuple[Any, ...]]:
+    def fetchmany(self, size: int | None = None) -> list[tuple[Any, ...]]:
         """
         Fetch the next set of rows.
 
         Args:
-            size: Maximum number of rows to fetch.
+            size: Maximum number of rows to fetch. Defaults to arraysize=1 per PEP 249.
 
         Returns:
             List of rows as tuples.
@@ -136,13 +131,13 @@ class AltertableCursor:
         if self._results is None:
             return []
         if size is None:
-            size = 1  # Default arraysize per PEP 249
+            size = 1
         end = min(self._cursor_position + size, len(self._results))
         rows = self._results[self._cursor_position : end]
         self._cursor_position = end
         return rows
 
-    def fetchall(self) -> List[Tuple[Any, ...]]:
+    def fetchall(self) -> list[tuple[Any, ...]]:
         """
         Fetch all remaining rows.
 
@@ -156,15 +151,15 @@ class AltertableCursor:
         return rows
 
     def close(self) -> None:
-        """Close the cursor."""
+        """Close the cursor and release any staged results."""
         self._results = None
         self._description = None
 
-    def __iter__(self):
+    def __iter__(self) -> "AltertableCursor":
         """Allow iteration over results."""
         return self
 
-    def __next__(self) -> Tuple[Any, ...]:
+    def __next__(self) -> tuple[Any, ...]:
         row = self.fetchone()
         if row is None:
             raise StopIteration
@@ -179,13 +174,18 @@ class AltertableConnection:
     that returns AltertableCursor instances.
     """
 
-    def __init__(self, client: altertable_flightsql.Client):
+    def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
 
     def __enter__(self) -> "AltertableConnection":
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.close()
 
     def cursor(self) -> AltertableCursor:
@@ -198,11 +198,9 @@ class AltertableConnection:
 
     def commit(self) -> None:
         """Commit current transaction (no-op for now as we use auto-commit)."""
-        pass
 
     def rollback(self) -> None:
         """Rollback current transaction (no-op for now as we use auto-commit)."""
-        pass
 
 
 @dataclass
@@ -221,7 +219,7 @@ class AltertableCredentials(Credentials):
     def unique_field(self) -> str:
         return "host"
 
-    def _connection_keys(self) -> Tuple[str, ...]:
+    def _connection_keys(self) -> tuple[str, ...]:
         return (
             "username",
             "password",
@@ -237,13 +235,13 @@ class AltertableConnectionManager(SQLConnectionManager):
     TYPE = "altertable"
 
     @contextmanager
-    def exception_handler(self, sql: str):
+    def exception_handler(self, sql: str) -> Iterator[None]:
         try:
             yield
 
         except Exception as e:
             logger.error(f"Error executing SQL: {sql}")
-            raise DbtRuntimeError(e) from e
+            raise DbtRuntimeError(str(e)) from e
 
     def cancel(self, connection: Connection) -> None:
         logger.debug(f"Attempting to cancel connection: {connection.name}")
@@ -253,7 +251,7 @@ class AltertableConnectionManager(SQLConnectionManager):
         if connection.state == ConnectionState.OPEN:
             return connection
 
-        def connect():
+        def connect() -> AltertableConnection:
             client = altertable_flightsql.Client(
                 username=connection.credentials.username,
                 password=connection.credentials.password,
@@ -275,5 +273,5 @@ class AltertableConnectionManager(SQLConnectionManager):
         )
 
     @classmethod
-    def get_response(cls, cursor) -> AdapterResponse:
+    def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:
         return AdapterResponse(_message="OK")

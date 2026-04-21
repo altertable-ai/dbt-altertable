@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+
+      - id: ty-check
+        name: ty typecheck
+        entry: uv run ty check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+      - id: conventional-commit
+        name: conventional commit message
+        stages: [commit-msg]
+        entry: uv run conventional-pre-commit feat fix chore docs build ci perf refactor revert style test
+        language: system
