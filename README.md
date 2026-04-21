@@ -1,29 +1,35 @@
 # dbt-altertable
 
-A dbt adapter for Altertable.
+[![CI](https://github.com/altertable-ai/dbt-altertable/actions/workflows/ci.yml/badge.svg)](https://github.com/altertable-ai/dbt-altertable/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/dbt-altertable.svg)](https://pypi.org/project/dbt-altertable/)
+[![Python versions](https://img.shields.io/pypi/pyversions/dbt-altertable.svg)](https://pypi.org/project/dbt-altertable/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A [dbt](https://www.getdbt.com/) adapter for [Altertable](https://altertable.ai/), backed by Arrow Flight SQL.
+
+## Requirements
+
+- Python **3.10+**
+- dbt-core `>=1.8,<2.0`
 
 ## Installation
-
-Install the package using pip:
 
 ```bash
 pip install dbt-altertable
 ```
 
-Or install from source:
+Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone <repository-url>
-cd dbt-altertable
-pip install .
+uv add dbt-altertable
 ```
 
 ## Configuration
 
-Add the following to your `profiles.yml`:
+Add a profile to `~/.dbt/profiles.yml`:
 
 ```yaml
-your_profile_name:
+my_project:
   target: dev
   outputs:
     dev:
@@ -32,21 +38,58 @@ your_profile_name:
       password: your_password
       database: your_database
       schema: your_schema
+      host: flight.altertable.ai  # optional, this is the default
+      port: 443                    # optional, this is the default
+      tls: true                    # optional, this is the default
 ```
 
-### Credentials Fields
+| Field | Required | Default | Description |
+| --- | --- | --- | --- |
+| `username` | yes | — | Altertable username |
+| `password` | yes | — | Altertable password |
+| `database` | yes | — | Target catalog name |
+| `schema` | yes | — | Target schema name |
+| `host` | no | `flight.altertable.ai` | Flight SQL endpoint host |
+| `port` | no | `443` | Flight SQL endpoint port |
+| `tls` | no | `true` | Use TLS for the Flight SQL connection |
 
-- **username** (required): Your Altertable username
-- **password** (required): Your Altertable password
-- **database** (required): Target database name
-- **schema** (required): Target schema name
+## SQL dialect
 
-## SQL Dialect
+dbt models should use **DuckDB-compatible SQL**. Altertable executes queries via DuckDB, so all DuckDB SQL features and functions are available — see the [DuckDB SQL reference](https://duckdb.org/docs/sql/introduction).
 
-dbt models should use **DuckDB-compatible SQL syntax**. Altertable uses DuckDB as its query engine, so you can leverage all DuckDB SQL features and functions in your models.
+## Development
 
-For DuckDB SQL reference, see: https://duckdb.org/docs/sql/introduction
+This project is managed with [uv](https://docs.astral.sh/uv/) and [hatchling](https://hatch.pypa.io/).
+
+```bash
+git clone https://github.com/altertable-ai/dbt-altertable.git
+cd dbt-altertable
+uv sync --extra dev
+```
+
+Common tasks (see `Makefile`):
+
+```bash
+make lint        # ruff format + ruff check --fix
+make typecheck   # ty check
+make test        # pytest
+make build       # uv build (wheel + sdist)
+```
+
+Optional pre-commit hooks:
+
+```bash
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
+
+## Releases
+
+Releases are managed via [release-please](https://github.com/googleapis/release-please) — every push to `main` updates a rolling release PR. Merging it bumps the version, updates `CHANGELOG.md`, tags the release, and triggers PyPI publishing via trusted publishing.
 
 ## Credits
 
-This adapter is built upon the excellent work of the [dbt-duckdb](https://github.com/duckdb/dbt-duckdb) project.
+This adapter draws on the design of [dbt-duckdb](https://github.com/duckdb/dbt-duckdb).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
