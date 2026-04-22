@@ -26,7 +26,7 @@ def mock_client_cls(mocker):
     return cls_mock
 
 
-def test_connect_client_never_binds_schema(mock_client_cls, base_creds_kwargs):
+def test_connect_client_opens_session_without_binding_a_catalog(mock_client_cls, base_creds_kwargs):
     creds = AltertableCredentials(**base_creds_kwargs)
 
     AltertableConnectionManager._connect_client(creds)
@@ -34,7 +34,7 @@ def test_connect_client_never_binds_schema(mock_client_cls, base_creds_kwargs):
     mock_client_cls.assert_called_once_with(
         username=base_creds_kwargs["username"],
         password=base_creds_kwargs["password"],
-        catalog=base_creds_kwargs["database"],
+        catalog=None,
         schema=None,
         host=base_creds_kwargs["host"],
         port=base_creds_kwargs["port"],
