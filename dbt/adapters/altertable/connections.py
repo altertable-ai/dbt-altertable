@@ -1,8 +1,7 @@
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from types import TracebackType
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 import altertable_flightsql
 import pyarrow as pa
@@ -10,12 +9,12 @@ from dbt.adapters.contracts.connection import (
     AdapterResponse,
     Connection,
     ConnectionState,
-    Credentials,
 )
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql.connections import SQLConnectionManager
 from dbt_common.exceptions import DbtRuntimeError
-from mashumaro.jsonschema.annotations import Maximum, Minimum
+
+from dbt.adapters.altertable.credentials import AltertableCredentials
 
 if TYPE_CHECKING:
     import agate
@@ -204,34 +203,6 @@ class AltertableConnection:
         """Rollback current transaction (no-op for now as we use auto-commit)."""
 
 
-@dataclass
-class AltertableCredentials(Credentials):
-    username: str
-    password: str
-    host: str = "flight.altertable.ai"
-    port: Annotated[int, Minimum(0), Maximum(65535)] = 443
-    tls: bool = True
-
-    @property
-    def type(self) -> str:
-        return "altertable"
-
-    @property
-    def unique_field(self) -> str:
-        return "host"
-
-    def _connection_keys(self) -> tuple[str, ...]:
-        return (
-            "username",
-            "password",
-            "database",
-            "schema",
-            "host",
-            "port",
-            "tls",
-        )
-
-
 class AltertableConnectionManager(SQLConnectionManager):
     TYPE = "altertable"
 
@@ -253,16 +224,7 @@ class AltertableConnectionManager(SQLConnectionManager):
             return connection
 
         def connect() -> AltertableConnection:
-            client = altertable_flightsql.Client(
-                username=connection.credentials.username,
-                password=connection.credentials.password,
-                catalog=connection.credentials.database,
-                schema=connection.credentials.schema,
-                host=connection.credentials.host,
-                port=connection.credentials.port,
-                tls=connection.credentials.tls,
-            )
-            return AltertableConnection(client)
+            return cls._connect_client(connection.credentials)
 
         return cls.retry_connection(
             connection,
@@ -272,6 +234,19 @@ class AltertableConnectionManager(SQLConnectionManager):
             retry_timeout=lambda attempt: attempt**2,
             retryable_exceptions=[Exception],
         )
+
+    @classmethod
+    def _connect_client(cls, credentials: AltertableCredentials) -> "AltertableConnection":
+        client = altertable_flightsql.Client(
+            username=credentials.username,
+            password=credentials.password,
+            catalog=credentials.database,
+            schema=None,
+            host=credentials.host,
+            port=credentials.port,
+            tls=credentials.tls,
+        )
+        return AltertableConnection(client)
 
     @classmethod
     def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:

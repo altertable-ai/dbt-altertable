@@ -1,6 +1,6 @@
 from dbt.adapters.base import AdapterPlugin
 
-from dbt.adapters.altertable.connections import AltertableCredentials
+from dbt.adapters.altertable.credentials import AltertableCredentials
 from dbt.adapters.altertable.impl import AltertableAdapter
 from dbt.include import altertable
 
