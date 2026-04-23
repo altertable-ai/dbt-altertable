@@ -19,11 +19,30 @@
   {%- endcall -%}
 {% endmacro %}
 
+{# DuckLake does not support DROP ... CASCADE:
+   https://ducklake.select/docs/stable/duckdb/unsupported_features.html
+   https://github.com/duckdb/ducklake/discussions/1057
+   Override the leaf drop macros to omit CASCADE so
+   dbt drop-emitting paths stay compatible with DuckLake, including
+   adapter.drop_relation (which resolves to drop_table/view/...) and direct
+   get_drop_sql calls used by relation replacement and cleanup flows. #}
 {% macro altertable__drop_schema(relation) -%}
   {%- call statement('drop_schema') -%}
-    drop schema if exists {{ relation.without_identifier() }} cascade
+    drop schema if exists {{ relation.without_identifier() }}
   {%- endcall -%}
 {% endmacro %}
+
+{% macro altertable__drop_table(relation) -%}
+  drop table if exists {{ relation.render() }}
+{%- endmacro %}
+
+{% macro altertable__drop_view(relation) -%}
+  drop view if exists {{ relation.render() }}
+{%- endmacro %}
+
+{% macro altertable__drop_materialized_view(relation) -%}
+  drop materialized view if exists {{ relation.render() }}
+{%- endmacro %}
 
 {% macro altertable__list_schemas(database) -%}
   {% set sql %}
