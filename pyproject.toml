@@ -42,6 +42,9 @@ dev = [
     "pre-commit>=4.0",
     "conventional-pre-commit>=4.4",
 ]
+integration = [
+    "testcontainers>=4.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/altertable-ai/dbt-altertable"
@@ -80,3 +83,8 @@ exclude = ["dist", "build", ".venv"]
 
 [tool.ty.rules]
 unresolved-import = "ignore"
+
+[tool.pytest.ini_options]
+markers = [
+    "altertable_integration: Flight SQL integration (altertable-mock in CI, or ALTERTABLE_TEST_* / testcontainers locally)",
+]

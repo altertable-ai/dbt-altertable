@@ -1,6 +1,7 @@
 
 {% macro altertable__get_binding_char() %}
-  {{ return(adapter.get_binding_char()) }}
+  {# Arrow Flight SQL / DuckDB prepared statements use ``?`` (not ``%s``). #}
+  {{ return('?') }}
 {% endmacro %}
 
 {% macro altertable__get_batch_size() %}
@@ -19,7 +20,6 @@
     {% endif %}
 
     {% set batch_size = get_batch_size() %}
-    {% set agate_table = adapter.convert_datetimes_to_strs(agate_table) %}
     {% set cols_sql = get_seed_column_quoted_csv(model, agate_table.column_names) %}
     {% set bindings = [] %}
 

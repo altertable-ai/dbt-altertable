@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 .PHONY: install lint format typecheck test build clean
 
 install:

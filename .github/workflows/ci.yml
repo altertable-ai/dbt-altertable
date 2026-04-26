@@ -74,8 +74,8 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev --python ${{ matrix.python-version }}
 
-      - name: Run pytest
-        run: uv run --python ${{ matrix.python-version }} pytest -v
+      - name: Run pytest (unit tests only)
+        run: uv run --python ${{ matrix.python-version }} pytest -v --ignore=tests/integration
 
   build:
     name: Build Package
@@ -100,3 +100,57 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  integration:
+    name: Integration (altertable-mock)
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    env:
+      ALTERTABLE_TEST_HOST: localhost
+      ALTERTABLE_TEST_PORT: "15002"
+      ALTERTABLE_TEST_TLS: "false"
+      ALTERTABLE_TEST_USERNAME: dbt_ci
+      ALTERTABLE_TEST_PASSWORD: dbt_ci_secret
+      ALTERTABLE_TEST_DATABASE: memory
+      ALTERTABLE_TEST_SCHEMA: main
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version-file: pyproject.toml
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Clone and build altertable-mock
+        run: |
+          git clone --depth 1 https://github.com/altertable-ai/altertable-mock.git /tmp/altertable-mock
+          docker build -t altertable-mock:ci /tmp/altertable-mock
+
+      - name: Start altertable-mock
+        run: |
+          docker rm -f altertable-mock-ci 2>/dev/null || true
+          docker run -d --name altertable-mock-ci -p 15002:15002 altertable-mock:ci --user dbt_ci:dbt_ci_secret
+
+      - name: Wait for Flight SQL
+        run: |
+          set -e
+          for _ in $(seq 1 60); do
+            if uv run python -c "import altertable_flightsql; c=altertable_flightsql.Client(username='dbt_ci',password='dbt_ci_secret',host='127.0.0.1',port=15002,tls=False); c.query('select 1').read_all(); c.close()"; then
+              echo "altertable-mock is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "altertable-mock did not become ready in time"
+          docker logs altertable-mock-ci || true
+          exit 1
+
+      - name: Run integration pytest
+        run: uv run pytest tests/integration -v
+
+      - name: Stop altertable-mock
+        if: always()
+        run: docker rm -f altertable-mock-ci || true

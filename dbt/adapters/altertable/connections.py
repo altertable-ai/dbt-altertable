@@ -1,5 +1,7 @@
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +22,33 @@ if TYPE_CHECKING:
     import agate
 
 logger = AdapterLogger("Altertable")
+
+
+def _normalize_flight_sql_scalar(value: Any) -> Any:
+    """Coerce dbt/agate values into types Arrow Flight can bind (e.g. Decimal → int)."""
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="seconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _normalize_flight_sql_parameters(
+    bindings: Sequence[Any] | Mapping[str, Any],
+) -> Sequence[Any] | Mapping[str, Any]:
+    """
+    Coerce all parameters before ``PreparedStatement.query``.
+
+    dbt seeds and other paths may supply ``decimal.Decimal`` (agate) and ``datetime``;
+    the Flight/Arrow path rejects those for integer columns (e.g. ``INT32``).
+    """
+    if isinstance(bindings, Mapping):
+        return {k: _normalize_flight_sql_scalar(v) for k, v in bindings.items()}
+    return [_normalize_flight_sql_scalar(x) for x in bindings]
 
 
 class AltertableCursor:
@@ -86,11 +115,10 @@ class AltertableCursor:
         self._table = None
         self._cursor_position = 0
 
-        logger.debug("Executing SQL: %s", sql)
         if bindings is not None:
-            logger.debug("With bindings: %s", bindings)
+            params = _normalize_flight_sql_parameters(bindings)
             with self._client.prepare(sql) as stmt:
-                reader = stmt.query(parameters=bindings)
+                reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
         else:
             reader = self._client.query(sql)
@@ -205,6 +233,37 @@ class AltertableConnection:
 
 class AltertableConnectionManager(SQLConnectionManager):
     TYPE = "altertable"
+
+    @classmethod
+    def data_type_code_to_name(cls, type_code: Any) -> str:
+        """Map ``AltertableCursor.description`` type codes (PyArrow types) to dbt type strings."""
+        import pyarrow as pa
+        import pyarrow.types as pat
+
+        if isinstance(type_code, str):
+            return type_code
+        if isinstance(type_code, pa.DataType):
+            if pat.is_boolean(type_code):
+                return "BOOLEAN"
+            if pat.is_integer(type_code) or pat.is_unsigned_integer(type_code):
+                return "BIGINT"
+            if pat.is_floating(type_code):
+                return "DOUBLE"
+            if pat.is_string(type_code) or pat.is_large_string(type_code):
+                return "TEXT"
+            if pat.is_binary(type_code) or pat.is_large_binary(type_code):
+                return "BLOB"
+            if pat.is_timestamp(type_code):
+                return "TIMESTAMP"
+            if pat.is_date32(type_code) or pat.is_date64(type_code):
+                return "DATE"
+            if pat.is_time32(type_code) or pat.is_time64(type_code):
+                return "TIME"
+            if pat.is_decimal(type_code):
+                return "DECIMAL"
+            return "TEXT"
+        # DB-API 2.0 integer codes (rare for this adapter)
+        return "TEXT"
 
     @contextmanager
     def exception_handler(self, sql: str) -> Iterator[None]:
