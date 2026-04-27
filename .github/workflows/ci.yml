@@ -105,6 +105,21 @@ jobs:
     name: Integration (altertable-mock)
     runs-on: ubuntu-latest
     needs: [code-quality]
+    services:
+      altertable:
+        image: ghcr.io/altertable-ai/altertable-mock:latest
+        ports:
+          - 15000:15000
+          - 15001:15001
+          - 15002:15002
+        env:
+          ALTERTABLE_MOCK_USERS: dbt_ci:dbt_ci_secret
+        options: >-
+          --health-cmd "exit 0"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 3
+          --health-start-period 10s
     env:
       ALTERTABLE_TEST_HOST: localhost
       ALTERTABLE_TEST_PORT: "15002"
@@ -124,16 +139,6 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Clone and build altertable-mock
-        run: |
-          git clone --depth 1 https://github.com/altertable-ai/altertable-mock.git /tmp/altertable-mock
-          docker build -t altertable-mock:ci /tmp/altertable-mock
-
-      - name: Start altertable-mock
-        run: |
-          docker rm -f altertable-mock-ci 2>/dev/null || true
-          docker run -d --name altertable-mock-ci -p 15002:15002 altertable-mock:ci --user dbt_ci:dbt_ci_secret
-
       - name: Wait for Flight SQL
         run: |
           set -e
@@ -145,12 +150,7 @@ jobs:
             sleep 2
           done
           echo "altertable-mock did not become ready in time"
-          docker logs altertable-mock-ci || true
           exit 1
 
       - name: Run integration pytest
         run: uv run pytest tests/integration -v
-
-      - name: Stop altertable-mock
-        if: always()
-        run: docker rm -f altertable-mock-ci || true
