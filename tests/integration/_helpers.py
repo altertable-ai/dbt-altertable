@@ -113,8 +113,8 @@ def flight_client() -> Any:
     return altertable_flightsql.Client(
         username=os.environ["ALTERTABLE_TEST_USERNAME"].strip(),
         password=os.environ["ALTERTABLE_TEST_PASSWORD"],
-        catalog=None,
-        schema=None,
+        catalog=os.environ.get("ALTERTABLE_TEST_DATABASE"),
+        schema=os.environ.get("ALTERTABLE_TEST_SCHEMA"),
         host=grpc_host(os.environ.get("ALTERTABLE_TEST_HOST", "127.0.0.1")),
         port=int(os.environ.get("ALTERTABLE_TEST_PORT", "15002").strip()),
         tls=env_bool("ALTERTABLE_TEST_TLS", False),
