@@ -54,7 +54,9 @@ def test_data_type_code_to_name_maps_arrow_types() -> None:
     assert AltertableConnectionManager.data_type_code_to_name(pa.uint16()) == "INTEGER"
     assert AltertableConnectionManager.data_type_code_to_name(pa.uint32()) == "BIGINT"
     assert AltertableConnectionManager.data_type_code_to_name(pa.uint64()) == "UBIGINT"
-    assert AltertableConnectionManager.data_type_code_to_name(pa.decimal128(18, 4)) == "DECIMAL(18, 4)"
+    assert (
+        AltertableConnectionManager.data_type_code_to_name(pa.decimal128(18, 4)) == "DECIMAL(18, 4)"
+    )
     assert AltertableConnectionManager.data_type_code_to_name(pa.string()) == "VARCHAR"
 
 
