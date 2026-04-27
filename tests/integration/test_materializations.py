@@ -1,5 +1,3 @@
-"""Table, view, and incremental materializations against altertable-mock."""
-
 from __future__ import annotations
 
 import contextlib
@@ -17,8 +15,7 @@ from tests.integration._helpers import (
     sql_string_literal,
     write_profiles,
 )
-
-PROFILE = "integration"
+from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 def _base_project(name: str) -> str:
@@ -26,7 +23,7 @@ def _base_project(name: str) -> str:
 name: {name}
 version: "1.0.0"
 config-version: 2
-profile: {PROFILE}
+profile: {INTEGRATION_PROFILE}
 
 model-paths: ["models"]
 
@@ -74,7 +71,7 @@ select 2 as id, 'second_run' as phase
     )
 
     (base / "dbt_project.yml").write_text(_base_project(proj), encoding="utf-8")
-    write_profiles(base, PROFILE)
+    write_profiles(base, INTEGRATION_PROFILE)
 
     db = os.environ["ALTERTABLE_TEST_DATABASE"].strip()
     schema = os.environ["ALTERTABLE_TEST_SCHEMA"].strip()

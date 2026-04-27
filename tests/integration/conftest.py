@@ -9,6 +9,9 @@ from collections.abc import Generator
 
 import pytest
 
+# profiles.yml target name produced by ``write_profiles`` for standard Flight tests.
+INTEGRATION_PROFILE = "integration"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _maybe_start_testcontainers() -> Generator[None, None, None]:

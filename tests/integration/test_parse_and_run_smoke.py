@@ -1,5 +1,3 @@
-"""Lightweight ``dbt parse`` / ``dbt compile`` smoke tests (no database writes)."""
-
 from __future__ import annotations
 
 import uuid
@@ -8,8 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.integration._helpers import run_dbt, skip_if_no_flight_target, write_profiles
-
-PROFILE = "integration"
+from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 @pytest.mark.altertable_integration
@@ -31,7 +28,7 @@ def test_parse_and_compile_select(tmp_path: Path) -> None:
 name: {proj}
 version: "1.0.0"
 config-version: 2
-profile: {PROFILE}
+profile: {INTEGRATION_PROFILE}
 
 model-paths: ["models"]
 
@@ -41,7 +38,7 @@ models:
 """,
         encoding="utf-8",
     )
-    write_profiles(base, PROFILE)
+    write_profiles(base, INTEGRATION_PROFILE)
 
     proc_parse = run_dbt(
         ["parse", "--project-dir", str(base), "--profiles-dir", str(base)],

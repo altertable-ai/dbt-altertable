@@ -115,11 +115,11 @@ jobs:
         env:
           ALTERTABLE_MOCK_USERS: dbt_ci:dbt_ci_secret
         options: >-
-          --health-cmd "exit 0"
-          --health-interval 5s
+          --health-cmd "bash -c '</dev/tcp/localhost/15002'"
+          --health-interval 2s
           --health-timeout 3s
-          --health-retries 3
-          --health-start-period 10s
+          --health-retries 30
+          --health-start-period 5s
     env:
       ALTERTABLE_TEST_HOST: localhost
       ALTERTABLE_TEST_PORT: "15002"
@@ -138,21 +138,6 @@ jobs:
 
       - name: Install dev dependencies
         run: uv sync --extra dev
-
-      - name: Wait for Flight SQL port
-        run: |
-          set -e
-          for _ in $(seq 1 60); do
-            if uv run python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(2); s.connect(('127.0.0.1', 15002)); s.close()"; then
-              echo "Flight SQL port is accepting connections"
-              sleep 2
-              echo "altertable-mock is ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "altertable-mock did not become ready in time"
-          exit 1
 
       - name: Run integration pytest
         run: uv run pytest tests/integration -v

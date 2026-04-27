@@ -1,5 +1,3 @@
-"""Seeds (parameterized insert path) and snapshots exercising altertable-specific macros."""
-
 from __future__ import annotations
 
 import contextlib
@@ -17,8 +15,7 @@ from tests.integration._helpers import (
     sql_string_literal,
     write_profiles,
 )
-
-PROFILE = "integration"
+from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 @pytest.mark.altertable_integration
@@ -62,7 +59,7 @@ select * from {{{{ ref('{seed_name}') }}}}
 name: {proj}
 version: "1.0.0"
 config-version: 2
-profile: {PROFILE}
+profile: {INTEGRATION_PROFILE}
 
 model-paths: ["models"]
 seed-paths: ["seeds"]
@@ -74,7 +71,7 @@ seeds:
 """,
         encoding="utf-8",
     )
-    write_profiles(base, PROFILE)
+    write_profiles(base, INTEGRATION_PROFILE)
 
     proc_seed = run_dbt(
         ["seed", "--project-dir", str(base), "--profiles-dir", str(base), "--select", seed_name],

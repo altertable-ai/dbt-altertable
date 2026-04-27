@@ -1,5 +1,3 @@
-"""persist_docs round-trip against Arrow Flight SQL (altertable-mock or a real endpoint)."""
-
 from __future__ import annotations
 
 import contextlib

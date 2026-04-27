@@ -44,18 +44,24 @@ def _arrow_type_to_column_dtype(data_type: pa.DataType) -> str:
         return "BOOLEAN"
     if patypes.is_int8(data_type) or patypes.is_uint8(data_type):
         return "SMALLINT"
-    if patypes.is_int16(data_type) or patypes.is_uint16(data_type):
+    if patypes.is_int16(data_type):
         return "SMALLINT"
-    if patypes.is_int32(data_type) or patypes.is_uint32(data_type):
+    if patypes.is_uint16(data_type):
         return "INTEGER"
-    if patypes.is_int64(data_type) or patypes.is_uint64(data_type):
+    if patypes.is_int32(data_type):
+        return "INTEGER"
+    if patypes.is_uint32(data_type):
         return "BIGINT"
+    if patypes.is_int64(data_type):
+        return "BIGINT"
+    if patypes.is_uint64(data_type):
+        return "UBIGINT"
     if patypes.is_float32(data_type):
         return "REAL"
     if patypes.is_float64(data_type):
         return "DOUBLE"
     if patypes.is_decimal(data_type):
-        return "DECIMAL"
+        return f"DECIMAL({data_type.precision}, {data_type.scale})"
     if patypes.is_timestamp(data_type):
         return "TIMESTAMP"
     if patypes.is_date32(data_type) or patypes.is_date64(data_type):
@@ -150,11 +156,11 @@ class AltertableCursor:
         self._table = None
         self._cursor_position = 0
 
-        logger.debug("%s", f"Executing SQL: {sql}")
+        logger.debug(f"Executing SQL: {sql}")
         if bindings is not None:
-            logger.debug("%s", f"With bindings: {bindings!r}")
+            logger.debug(f"With bindings: {bindings!r}")
             params = _normalize_flight_sql_parameters(bindings)
-            logger.debug("%s", f"Normalized bindings: {params!r}")
+            logger.debug(f"Normalized bindings: {params!r}")
             with self._client.prepare(sql) as stmt:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
