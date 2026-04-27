@@ -116,11 +116,11 @@ class AltertableCursor:
         self._table = None
         self._cursor_position = 0
 
-        logger.debug("Executing SQL: %s", sql)
+        logger.debug("%s", f"Executing SQL: {sql}")
         if bindings is not None:
-            logger.debug("With bindings: %s", bindings)
+            logger.debug("%s", f"With bindings: {bindings!r}")
             params = _normalize_flight_sql_parameters(bindings)
-            logger.debug("Normalized bindings: %s", params)
+            logger.debug("%s", f"Normalized bindings: {params!r}")
             with self._client.prepare(sql) as stmt:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
