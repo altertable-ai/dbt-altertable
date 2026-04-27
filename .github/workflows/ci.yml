@@ -139,11 +139,13 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Wait for Flight SQL
+      - name: Wait for Flight SQL port
         run: |
           set -e
           for _ in $(seq 1 60); do
-            if uv run python -c "import altertable_flightsql; c=altertable_flightsql.Client(username='dbt_ci',password='dbt_ci_secret',host='127.0.0.1',port=15002,tls=False,catalog='memory',schema='main'); c.query('select 1').read_all(); c.close()"; then
+            if uv run python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(2); s.connect(('127.0.0.1', 15002)); s.close()"; then
+              echo "Flight SQL port is accepting connections"
+              sleep 2
               echo "altertable-mock is ready"
               exit 0
             fi

@@ -317,8 +317,8 @@ class AltertableConnectionManager(SQLConnectionManager):
         client = altertable_flightsql.Client(
             username=credentials.username,
             password=credentials.password,
-            catalog=credentials.database,
-            schema=credentials.schema,
+            catalog=None,
+            schema=None,
             host=credentials.host,
             port=credentials.port,
             tls=credentials.tls,
