@@ -38,7 +38,7 @@ models:
 
 @pytest.mark.altertable_integration
 def test_view_and_incremental_append(tmp_path: Path) -> None:
-    """Exercises create_view_as, incremental append (supported strategy), and duckdb_* for views/tables."""
+    """Exercises create_view_as, incremental append, and duckdb_* for views/tables."""
     skip_if_no_flight_target()
 
     proj = f"integ_mat_{uuid.uuid4().hex[:8]}"
@@ -122,9 +122,7 @@ select 2 as id, 'second_run' as phase
         )
         assert client.query(qv).read_all().to_pylist()[0]["c"] == 1
 
-        qrows = (
-            f"select id, phase from {quoted_ident(db, schema, inc_name)} order by id"
-        )
+        qrows = f"select id, phase from {quoted_ident(db, schema, inc_name)} order by id"
         rows = client.query(qrows).read_all().to_pylist()
         assert {r["id"] for r in rows} == {1, 2}
         by_id = {r["id"]: r["phase"] for r in rows}

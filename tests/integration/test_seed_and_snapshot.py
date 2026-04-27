@@ -109,9 +109,11 @@ seeds:
         )
         assert client.query(q2).read_all().to_pylist()[0]["c"] >= 1
 
-        n = client.query(
-            f"select count(*) as c from {quoted_ident(db, schema, snap_tbl)}"
-        ).read_all().to_pylist()[0]["c"]
+        n = (
+            client.query(f"select count(*) as c from {quoted_ident(db, schema, snap_tbl)}")
+            .read_all()
+            .to_pylist()[0]["c"]
+        )
         assert int(n) >= 2
 
         for rel in (snap_tbl, seed_name):

@@ -1,4 +1,7 @@
-"""Compile and run models that exercise adapter-dispatched SQL macros (DuckDB-specific implementations)."""
+"""Compile and run models that exercise adapter-dispatched SQL macros.
+
+DuckDB-specific macro implementations.
+"""
 
 from __future__ import annotations
 

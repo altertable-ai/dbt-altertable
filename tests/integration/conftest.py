@@ -61,7 +61,8 @@ def _maybe_start_testcontainers() -> Generator[None, None, None]:
         time.sleep(0.5)
 
         host = container.get_container_host_ip()
-        # Docker Desktop publishes mapped ports on IPv4; gRPC may resolve "localhost" to ::1 and fail.
+        # Docker Desktop publishes mapped ports on IPv4; gRPC may resolve
+        # "localhost" to ::1 and fail.
         if host.strip().lower() in ("localhost", "::1", "0.0.0.0"):
             host = "127.0.0.1"
         port = int(container.get_exposed_port(15002))

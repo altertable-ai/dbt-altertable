@@ -47,7 +47,8 @@ def _normalize_flight_sql_parameters(
     the Flight/Arrow path rejects those for integer columns (e.g. ``INT32``).
     """
     if isinstance(bindings, Mapping):
-        return {k: _normalize_flight_sql_scalar(v) for k, v in bindings.items()}
+        out: dict[str, Any] = {str(k): _normalize_flight_sql_scalar(v) for k, v in bindings.items()}
+        return out
     return [_normalize_flight_sql_scalar(x) for x in bindings]
 
 
