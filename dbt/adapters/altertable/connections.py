@@ -1,10 +1,13 @@
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 import altertable_flightsql
 import pyarrow as pa
+import pyarrow.types as patypes
 from dbt.adapters.contracts.connection import (
     AdapterResponse,
     Connection,
@@ -20,6 +23,73 @@ if TYPE_CHECKING:
     import agate
 
 logger = AdapterLogger("Altertable")
+
+
+def _normalize_flight_sql_scalar(value: Any) -> Any:
+    """Coerce dbt/agate values into types Arrow Flight can bind (e.g. Decimal → int)."""
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _arrow_type_to_column_dtype(data_type: pa.DataType) -> str:
+    """Map Arrow types from ``cursor.description`` to dbt ``Column`` dtype strings (DuckDB-like)."""
+    if patypes.is_boolean(data_type):
+        return "BOOLEAN"
+    if patypes.is_int8(data_type) or patypes.is_uint8(data_type):
+        return "SMALLINT"
+    if patypes.is_int16(data_type):
+        return "SMALLINT"
+    if patypes.is_uint16(data_type):
+        return "INTEGER"
+    if patypes.is_int32(data_type):
+        return "INTEGER"
+    if patypes.is_uint32(data_type):
+        return "BIGINT"
+    if patypes.is_int64(data_type):
+        return "BIGINT"
+    if patypes.is_uint64(data_type):
+        return "UBIGINT"
+    if patypes.is_float32(data_type):
+        return "REAL"
+    if patypes.is_float64(data_type):
+        return "DOUBLE"
+    if patypes.is_decimal(data_type):
+        return f"DECIMAL({data_type.precision}, {data_type.scale})"
+    if patypes.is_timestamp(data_type):
+        return "TIMESTAMP"
+    if patypes.is_date32(data_type) or patypes.is_date64(data_type):
+        return "DATE"
+    if patypes.is_time32(data_type) or patypes.is_time64(data_type):
+        return "TIME"
+    if patypes.is_string(data_type) or patypes.is_large_string(data_type):
+        return "VARCHAR"
+    if patypes.is_binary(data_type) or patypes.is_large_binary(data_type):
+        return "BLOB"
+    if patypes.is_null(data_type):
+        return "VARCHAR"
+    return "VARCHAR"
+
+
+def _normalize_flight_sql_parameters(
+    bindings: Sequence[Any] | Mapping[str, Any],
+) -> Sequence[Any] | Mapping[str, Any]:
+    """
+    Coerce all parameters before ``PreparedStatement.query``.
+
+    dbt seeds and other paths may supply ``decimal.Decimal`` (agate) and ``datetime``;
+    the Flight/Arrow path rejects those for integer columns (e.g. ``INT32``).
+    """
+    if isinstance(bindings, Mapping):
+        out: dict[str, Any] = {str(k): _normalize_flight_sql_scalar(v) for k, v in bindings.items()}
+        return out
+    return [_normalize_flight_sql_scalar(x) for x in bindings]
 
 
 class AltertableCursor:
@@ -86,11 +156,13 @@ class AltertableCursor:
         self._table = None
         self._cursor_position = 0
 
-        logger.debug("Executing SQL: %s", sql)
+        logger.debug(f"Executing SQL: {sql}")
         if bindings is not None:
-            logger.debug("With bindings: %s", bindings)
+            logger.debug(f"With bindings: {bindings!r}")
+            params = _normalize_flight_sql_parameters(bindings)
+            logger.debug(f"Normalized bindings: {params!r}")
             with self._client.prepare(sql) as stmt:
-                reader = stmt.query(parameters=bindings)
+                reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
         else:
             reader = self._client.query(sql)
@@ -205,6 +277,17 @@ class AltertableConnection:
 
 class AltertableConnectionManager(SQLConnectionManager):
     TYPE = "altertable"
+
+    @classmethod
+    def data_type_code_to_name(cls, type_code: Any) -> str:
+        """PEP 249 uses int codes; our cursor uses Arrow ``DataType`` instances."""
+        if isinstance(type_code, pa.DataType):
+            return _arrow_type_to_column_dtype(type_code)
+        if isinstance(type_code, str):
+            return type_code
+        if isinstance(type_code, int):
+            return "VARCHAR"
+        return "VARCHAR"
 
     @contextmanager
     def exception_handler(self, sql: str) -> Iterator[None]:

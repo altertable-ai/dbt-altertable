@@ -47,7 +47,7 @@
 {% macro altertable__list_schemas(database) -%}
   {% set sql %}
     select schema_name
-    from system.information_schema.schemata
+    from information_schema.schemata
     {% if database is not none %}
     where lower(catalog_name) = '{{ database | lower | trim('"') }}'
     {% endif %}
@@ -58,7 +58,7 @@
 {% macro altertable__check_schema_exists(information_schema, schema) -%}
   {% set sql -%}
         select count(*)
-        from system.information_schema.schemata
+        from information_schema.schemata
         where lower(schema_name) = '{{ schema | lower }}'
         and lower(catalog_name) = '{{ information_schema.database | lower }}'
   {%- endset %}
@@ -144,20 +144,18 @@ def materialize(df, con):
       select
           column_name,
           data_type,
-          character_maximum_length,
-          numeric_precision,
-          numeric_scale
-
-      from system.information_schema.columns
+          cast(null as integer) as character_maximum_length,
+          cast(null as integer) as numeric_precision,
+          cast(null as integer) as numeric_scale
+      from duckdb_columns()
       where table_name = '{{ relation.identifier }}'
       {% if relation.schema %}
-      and lower(table_schema) = '{{ relation.schema | lower }}'
+      and lower(schema_name) = lower('{{ relation.schema }}')
       {% endif %}
       {% if relation.database %}
-      and lower(table_catalog) = '{{ relation.database | lower }}'
+      and lower(database_name) = lower('{{ relation.database }}')
       {% endif %}
-      order by ordinal_position
-
+      order by column_index
   {% endcall %}
   {% set table = load_result('get_columns_in_relation').table %}
   {{ return(sql_convert_columns_in_relation(table)) }}
@@ -168,15 +166,20 @@ def materialize(df, con):
     select
       '{{ schema_relation.database }}' as database,
       table_name as name,
-      table_schema as schema,
-      CASE table_type
-        WHEN 'BASE TABLE' THEN 'table'
-        WHEN 'VIEW' THEN 'view'
-        WHEN 'LOCAL TEMPORARY' THEN 'table'
-        END as type
-    from system.information_schema.tables
-    where lower(table_schema) = '{{ schema_relation.schema | lower }}'
-    and lower(table_catalog) = '{{ schema_relation.database | lower }}'
+      schema_name as schema,
+      'table' as type
+    from duckdb_tables()
+    where lower(schema_name) = '{{ schema_relation.schema | lower }}'
+    and lower(database_name) = '{{ schema_relation.database | lower }}'
+    union all
+    select
+      '{{ schema_relation.database }}' as database,
+      view_name as name,
+      schema_name as schema,
+      'view' as type
+    from duckdb_views()
+    where lower(schema_name) = '{{ schema_relation.schema | lower }}'
+    and lower(database_name) = '{{ schema_relation.database | lower }}'
   {% endcall %}
   {{ return(load_result('list_relations_without_caching').table) }}
 {% endmacro %}
