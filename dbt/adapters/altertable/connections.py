@@ -30,9 +30,9 @@ def _normalize_flight_sql_scalar(value: Any) -> Any:
     if isinstance(value, Decimal):
         if value == value.to_integral_value():
             return int(value)
-        return float(value)
+        return value
     if isinstance(value, datetime):
-        return value.isoformat(sep=" ", timespec="seconds")
+        return value.isoformat(sep=" ")
     if isinstance(value, date):
         return value.isoformat()
     return value
