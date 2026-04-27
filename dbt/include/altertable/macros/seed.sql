@@ -1,6 +1,5 @@
 
 {% macro altertable__get_binding_char() %}
-  {# Arrow Flight SQL / DuckDB prepared statements use ``?`` (not ``%s``). #}
   {{ return('?') }}
 {% endmacro %}
 

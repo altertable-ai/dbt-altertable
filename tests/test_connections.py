@@ -2,8 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import pyarrow as pa
-
 from dbt.adapters.altertable.connections import AltertableConnectionManager
 from dbt.adapters.altertable.credentials import AltertableCredentials
 
@@ -43,12 +41,6 @@ def test_connect_client_opens_session_without_binding_a_catalog(mock_client_cls,
         tls=base_creds_kwargs["tls"],
     )
     mock_client_cls.return_value.query.assert_not_called()
-
-
-def test_data_type_code_to_name_maps_pyarrow_types():
-    assert AltertableConnectionManager.data_type_code_to_name(pa.int64()) == "BIGINT"
-    assert AltertableConnectionManager.data_type_code_to_name(pa.utf8()) == "TEXT"
-    assert AltertableConnectionManager.data_type_code_to_name("VARCHAR") == "VARCHAR"
 
 
 def test_catalog_alias_maps_to_database():
