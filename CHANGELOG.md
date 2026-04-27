@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/altertable-ai/dbt-altertable/compare/v0.2.0...v0.2.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* persisted docs and integration tests ([#17](https://github.com/altertable-ai/dbt-altertable/issues/17)) ([54415c3](https://github.com/altertable-ai/dbt-altertable/commit/54415c337cb9a8040ed0f6719428b36dbffc27df))
+
 ## [0.2.0](https://github.com/altertable-ai/dbt-altertable/compare/v0.1.0...v0.2.0) (2026-04-23)
 
 
