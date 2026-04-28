@@ -11,7 +11,7 @@ from tests.integration._helpers import (
     flight_client_ctx,
     quoted_ident,
     run_dbt,
-    skip_if_no_flight_target,
+    skip_if_missing_integration_env,
     sql_string_literal,
     write_profiles,
 )
@@ -63,8 +63,7 @@ models:
 
 @pytest.mark.altertable_integration
 def test_persist_docs_comments_roundtrip(tmp_path: Path) -> None:
-    """Run dbt and verify COMMENT ON via duckdb_* catalog."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     model_name = f"pd_integ_{uuid.uuid4().hex[:10]}"
     _write_project(tmp_path, model_name)
@@ -162,8 +161,7 @@ models:
 
 @pytest.mark.altertable_integration
 def test_persist_docs_column_comments_on_view_fail_clearly(tmp_path: Path) -> None:
-    """Column persist_docs on views is unsupported; expect a compiler error, not engine noise."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     model_name = f"pd_view_{uuid.uuid4().hex[:10]}"
     _write_view_project_with_column_docs(tmp_path, model_name)

@@ -1,5 +1,3 @@
-"""dbt docs generate (catalog) and built-in schema tests."""
-
 from __future__ import annotations
 
 import json
@@ -8,14 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.integration._helpers import run_dbt, skip_if_no_flight_target, write_profiles
+from tests.integration._helpers import run_dbt, skip_if_missing_integration_env, write_profiles
 from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 @pytest.mark.altertable_integration
 def test_docs_generate_catalog_and_schema_tests(tmp_path: Path) -> None:
-    """Runs altertable__get_catalog via ``dbt docs generate`` and generic data tests."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     proj = f"integ_docs_{uuid.uuid4().hex[:8]}"
     base = tmp_path / proj

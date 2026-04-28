@@ -11,7 +11,7 @@ from tests.integration._helpers import (
     flight_client_ctx,
     quoted_ident,
     run_dbt,
-    skip_if_no_flight_target,
+    skip_if_missing_integration_env,
     sql_string_literal,
     write_profiles,
 )
@@ -35,8 +35,7 @@ models:
 
 @pytest.mark.altertable_integration
 def test_view_and_incremental_append(tmp_path: Path) -> None:
-    """Exercises create_view_as, incremental append, and duckdb_* for views/tables."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     proj = f"integ_mat_{uuid.uuid4().hex[:8]}"
     base = tmp_path / proj
