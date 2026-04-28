@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.integration._helpers import run_dbt, skip_if_no_flight_target, write_profiles
+from tests.integration._helpers import run_dbt, skip_if_missing_integration_env, write_profiles
 from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 @pytest.mark.altertable_integration
 def test_parse_and_compile_select(tmp_path: Path) -> None:
-    """Ensures the project graph resolves and SQL compiles against the adapter."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     proj = f"integ_parse_{uuid.uuid4().hex[:8]}"
     base = tmp_path / proj

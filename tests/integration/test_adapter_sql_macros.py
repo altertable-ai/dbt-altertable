@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.integration._helpers import run_dbt, skip_if_no_flight_target, write_profiles
+from tests.integration._helpers import run_dbt, skip_if_missing_integration_env, write_profiles
 from tests.integration.conftest import INTEGRATION_PROFILE
 
 
 @pytest.mark.altertable_integration
 def test_dispatch_macros_date_split_any_value(tmp_path: Path) -> None:
-    """Runs SQL using dateadd, datediff, last_day, split_part, any_value, generate_series."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     proj = f"integ_macros_{uuid.uuid4().hex[:8]}"
     base = tmp_path / proj

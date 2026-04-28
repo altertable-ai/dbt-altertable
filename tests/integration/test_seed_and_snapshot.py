@@ -11,7 +11,7 @@ from tests.integration._helpers import (
     flight_client_ctx,
     quoted_ident,
     run_dbt,
-    skip_if_no_flight_target,
+    skip_if_missing_integration_env,
     sql_string_literal,
     write_profiles,
 )
@@ -20,8 +20,7 @@ from tests.integration.conftest import INTEGRATION_PROFILE
 
 @pytest.mark.altertable_integration
 def test_seed_fast_false_and_check_strategy_snapshot(tmp_path: Path) -> None:
-    """COPY FROM a local path runs on the Flight server; ``fast: false`` uses INSERT + bindings."""
-    skip_if_no_flight_target()
+    skip_if_missing_integration_env()
 
     proj = f"integ_seed_{uuid.uuid4().hex[:8]}"
     base = tmp_path / proj

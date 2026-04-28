@@ -21,15 +21,15 @@ REQUIRED_ENV = (
 )
 
 
-def missing_flight_target() -> list[str]:
+def missing_integration_env() -> list[str]:
     return [k for k in REQUIRED_ENV if not os.environ.get(k, "").strip()]
 
 
-def skip_if_no_flight_target() -> None:
-    missing = missing_flight_target()
+def skip_if_missing_integration_env() -> None:
+    missing = missing_integration_env()
     if missing:
         pytest.skip(
-            "Integration tests need Flight SQL credentials and catalog/schema. "
+            "Integration tests need ALTERTABLE_TEST_* credentials and catalog/schema. "
             "In CI this is provided by altertable-mock. Locally either:\n"
             "  - export ALTERTABLE_TEST_* (see README), or\n"
             "  - ALTERTABLE_USE_TESTCONTAINERS=1 uv run pytest tests/integration "
