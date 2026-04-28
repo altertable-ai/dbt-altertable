@@ -118,3 +118,70 @@ def test_persist_docs_comments_roundtrip(tmp_path: Path) -> None:
         drop_sql = f"drop table if exists {quoted_ident(db, schema, model_name)}"
         with contextlib.suppress(Exception):
             client.query(drop_sql).read_all()
+
+
+def _write_view_project_with_column_docs(tmp: Path, model_name: str) -> None:
+    (tmp / "models").mkdir(parents=True)
+    (tmp / "models" / f"{model_name}.sql").write_text(
+        "{{ config(materialized='view') }}\n\nselect 1 as id, 'x' as msg\n",
+        encoding="utf-8",
+    )
+    (tmp / "models" / "_persist_docs_view_models.yml").write_text(
+        f"""\
+version: 2
+
+models:
+  - name: {model_name}
+    description: "View relation doc"
+    columns:
+      - name: id
+        description: "Column id doc"
+      - name: msg
+        description: "Column msg doc"
+""",
+        encoding="utf-8",
+    )
+    (tmp / "dbt_project.yml").write_text(
+        """\
+name: persist_docs_view_integration
+version: "1.0.0"
+config-version: 2
+profile: persist_docs_integration
+
+model-paths: ["models"]
+
+models:
+  persist_docs_view_integration:
+    +persist_docs:
+      relation: true
+      columns: true
+""",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.altertable_integration
+def test_persist_docs_column_comments_on_view_fail_clearly(tmp_path: Path) -> None:
+    """Column persist_docs on views is unsupported; expect a compiler error, not engine noise."""
+    skip_if_no_flight_target()
+
+    model_name = f"pd_view_{uuid.uuid4().hex[:10]}"
+    _write_view_project_with_column_docs(tmp_path, model_name)
+    write_profiles(tmp_path, PROFILE)
+
+    proc = run_dbt(
+        [
+            "run",
+            "--project-dir",
+            str(tmp_path),
+            "--profiles-dir",
+            str(tmp_path),
+            "--select",
+            model_name,
+        ],
+        tmp_path,
+    )
+    assert proc.returncode != 0, "expected dbt run to fail when persisting column docs on a view"
+    combined = f"{proc.stdout}\n{proc.stderr}"
+    assert "COMMENT ON COLUMN for views" in combined
+    assert "persist_docs" in combined.lower()
