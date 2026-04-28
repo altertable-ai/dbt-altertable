@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.2...dbt-altertable-v0.2.3) (2026-04-28)
+
+
+### Bug Fixes
+
+* **persist_docs:** fail gracefully when trying to add a comment on view columns ([#22](https://github.com/altertable-ai/dbt-altertable/issues/22)) ([e0b3c5c](https://github.com/altertable-ai/dbt-altertable/commit/e0b3c5cc01d549670cc34965f00f9ed0f116ba8a))
+
 ## [0.2.2](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.1...dbt-altertable-v0.2.2) (2026-04-27)
 
 
