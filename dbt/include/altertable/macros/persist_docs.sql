@@ -32,6 +32,15 @@
   one statement per round-trip; the outer run_query then receives an empty string and skips.
 #}
 {% macro altertable__alter_column_comment(relation, column_dict) -%}
+  {# Altertable does not support COMMENT ON COLUMN for views (relation-level COMMENT ON VIEW is supported). #}
+  {%- if relation.is_view and column_dict | length > 0 -%}
+    {%- do exceptions.raise_compiler_error(
+      "The Altertable engine does not support COMMENT ON COLUMN for views (relation-level comments are supported). "
+      ~ "Disable column persistence for this model with persist_docs: {columns: false}, "
+      ~ "or remove column description entries from its schema YAML. "
+      ~ "Relation: " ~ relation.render()
+    ) -%}
+  {%- endif -%}
   {%- set existing_columns = adapter.get_columns_in_relation(relation) | map(attribute="name") | list -%}
   {%- set existing_lower_map = {} -%}
   {%- for col in existing_columns -%}
