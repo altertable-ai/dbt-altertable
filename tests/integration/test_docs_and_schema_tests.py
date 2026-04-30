@@ -1,35 +1,17 @@
 from __future__ import annotations
 
 import json
-import uuid
-from pathlib import Path
 
 import pytest
 
-from tests.integration._helpers import run_dbt, skip_if_missing_integration_env, write_profiles
-from tests.integration.conftest import INTEGRATION_PROFILE
+from tests.integration._helpers import DbtProject
 
+MODEL = "integ_catalog_model"
 
-@pytest.mark.altertable_integration
-def test_docs_generate_catalog_and_schema_tests(tmp_path: Path) -> None:
-    skip_if_missing_integration_env()
-
-    proj = f"integ_docs_{uuid.uuid4().hex[:8]}"
-    base = tmp_path / proj
-    base.mkdir()
-    models = base / "models"
-    models.mkdir()
-
-    model_name = "integ_catalog_model"
-    (models / f"{model_name}.sql").write_text(
-        "{{ config(materialized='table') }}\nselect 1 as id, 'ok' as status\n",
-        encoding="utf-8",
-    )
-    (models / "_schema.yml").write_text(
-        f"""\
+SCHEMA_YML = f"""\
 version: 2
 models:
-  - name: {model_name}
+  - name: {MODEL}
     columns:
       - name: id
         tests:
@@ -38,50 +20,26 @@ models:
       - name: status
         tests:
           - not_null
-""",
-        encoding="utf-8",
+"""
+
+
+@pytest.mark.altertable_integration
+def test_docs_generate_catalog_and_schema_tests(dbt_project: DbtProject) -> None:
+    dbt_project.write_project_yml(models={"+materialized": "table"})
+    dbt_project.write_model(
+        MODEL, "{{ config(materialized='table') }}\nselect 1 as id, 'ok' as status\n"
     )
+    dbt_project.write_models_yml("_schema", SCHEMA_YML)
 
-    (base / "dbt_project.yml").write_text(
-        f"""\
-name: {proj}
-version: "1.0.0"
-config-version: 2
-profile: {INTEGRATION_PROFILE}
+    dbt_project.run("run", "--select", MODEL)
+    dbt_project.run("test", "--select", MODEL)
+    dbt_project.run("docs", "generate")
 
-model-paths: ["models"]
-
-models:
-  {proj}:
-    +materialized: table
-""",
-        encoding="utf-8",
-    )
-    write_profiles(base, INTEGRATION_PROFILE)
-
-    proc_run = run_dbt(
-        ["run", "--project-dir", str(base), "--profiles-dir", str(base), "--select", model_name],
-        base,
-    )
-    assert proc_run.returncode == 0, proc_run.stdout + proc_run.stderr
-
-    proc_test = run_dbt(
-        ["test", "--project-dir", str(base), "--profiles-dir", str(base), "--select", model_name],
-        base,
-    )
-    assert proc_test.returncode == 0, proc_test.stdout + proc_test.stderr
-
-    proc_docs = run_dbt(
-        ["docs", "generate", "--project-dir", str(base), "--profiles-dir", str(base)],
-        base,
-    )
-    assert proc_docs.returncode == 0, proc_docs.stdout + proc_docs.stderr
-
-    catalog_path = base / "target" / "catalog.json"
+    catalog_path = dbt_project.base / "target" / "catalog.json"
     assert catalog_path.is_file(), "dbt docs generate should write target/catalog.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     nodes = catalog.get("nodes") or {}
-    key = f"model.{proj}.{model_name}"
+    key = f"model.{dbt_project.name}.{MODEL}"
     assert key in nodes, f"Expected catalog node {key}, got keys sample: {list(nodes)[:5]}"
     entry = nodes[key]
     assert entry.get("metadata", {}).get("type") == "BASE TABLE"

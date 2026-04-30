@@ -1,26 +1,12 @@
 from __future__ import annotations
 
-import uuid
-from pathlib import Path
-
 import pytest
 
-from tests.integration._helpers import run_dbt, skip_if_missing_integration_env, write_profiles
-from tests.integration.conftest import INTEGRATION_PROFILE
+from tests.integration._helpers import DbtProject
 
+MODEL = "integ_utils"
 
-@pytest.mark.altertable_integration
-def test_dispatch_macros_date_split_any_value(tmp_path: Path) -> None:
-    skip_if_missing_integration_env()
-
-    proj = f"integ_macros_{uuid.uuid4().hex[:8]}"
-    base = tmp_path / proj
-    base.mkdir()
-    models = base / "models"
-    models.mkdir()
-
-    (models / "integ_utils.sql").write_text(
-        """\
+UTILS_SQL = """\
 {{ config(materialized='table') }}
 with series as (
     {{ dbt.generate_series(4) }}
@@ -38,37 +24,12 @@ from series s
 cross join (
     select {{ dbt.any_value('x') }} as any_x from (values (10), (20), (30)) as t(x)
 ) av
-""",
-        encoding="utf-8",
-    )
+"""
 
-    (base / "dbt_project.yml").write_text(
-        f"""\
-name: {proj}
-version: "1.0.0"
-config-version: 2
-profile: {INTEGRATION_PROFILE}
 
-model-paths: ["models"]
+@pytest.mark.altertable_integration
+def test_dispatch_macros_date_split_any_value(dbt_project: DbtProject) -> None:
+    dbt_project.write_project_yml(models={"+materialized": "table"})
+    dbt_project.write_model(MODEL, UTILS_SQL)
 
-models:
-  {proj}:
-    +materialized: table
-""",
-        encoding="utf-8",
-    )
-    write_profiles(base, INTEGRATION_PROFILE)
-
-    proc = run_dbt(
-        [
-            "run",
-            "--project-dir",
-            str(base),
-            "--profiles-dir",
-            str(base),
-            "--select",
-            "integ_utils",
-        ],
-        base,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
+    dbt_project.run("run", "--select", MODEL)

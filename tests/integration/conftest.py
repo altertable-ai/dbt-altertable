@@ -1,30 +1,30 @@
-"""Session fixtures for Flight SQL integration tests (altertable-mock or a real endpoint)."""
-
 from __future__ import annotations
 
 import contextlib
 import os
 import time
-from collections.abc import Generator
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
 
-# profiles.yml target name produced by ``write_profiles`` for standard Flight tests.
-INTEGRATION_PROFILE = "integration"
+from tests.integration._helpers import (
+    INTEGRATION_PROFILE,
+    DbtProject,
+    env_bool,
+    flight_client_ctx,
+    quoted_ident,
+    skip_if_missing_integration_env,
+    write_profiles,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _maybe_start_testcontainers() -> Generator[None, None, None]:
+def _maybe_start_testcontainers() -> Iterator[None]:
     """When ALTERTABLE_USE_TESTCONTAINERS=1, run altertable-mock via testcontainers (local dev)."""
-    if os.environ.get("CI", "").strip().lower() in ("1", "true", "yes"):
-        yield
-        return
-
-    if os.environ.get("ALTERTABLE_USE_TESTCONTAINERS", "").strip().lower() not in (
-        "1",
-        "true",
-        "yes",
-    ):
+    if env_bool("CI", False) or not env_bool("ALTERTABLE_USE_TESTCONTAINERS", False):
         yield
         return
 
@@ -60,12 +60,9 @@ def _maybe_start_testcontainers() -> Generator[None, None, None]:
     )
     try:
         container.start()
-        # Log wait ensures gRPC is up; brief settle for port mapping on Docker Desktop.
         time.sleep(0.5)
 
         host = container.get_container_host_ip()
-        # Docker Desktop publishes mapped ports on IPv4; gRPC may resolve
-        # "localhost" to ::1 and fail.
         if host.strip().lower() in ("localhost", "::1", "0.0.0.0"):
             host = "127.0.0.1"
         port = int(container.get_exposed_port(15002))
@@ -75,9 +72,45 @@ def _maybe_start_testcontainers() -> Generator[None, None, None]:
         os.environ.setdefault("ALTERTABLE_TEST_USERNAME", user_name)
         os.environ.setdefault("ALTERTABLE_TEST_PASSWORD", user_secret)
         os.environ.setdefault("ALTERTABLE_TEST_DATABASE", "memory")
-        os.environ.setdefault("ALTERTABLE_TEST_SCHEMA", "main")
 
         yield
     finally:
         with contextlib.suppress(Exception):
             container.stop()
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_missing_integration_env(
+    request: pytest.FixtureRequest,
+    _maybe_start_testcontainers: None,
+) -> None:
+    """Skip @altertable_integration tests when Flight SQL credentials are not set."""
+    if request.node.get_closest_marker("altertable_integration"):
+        skip_if_missing_integration_env()
+
+
+@pytest.fixture
+def flight_client() -> Iterator[Any]:
+    with flight_client_ctx() as client:
+        yield client
+
+
+@pytest.fixture
+def dbt_project(tmp_path: Path, flight_client: Any) -> Iterator[DbtProject]:
+    """Each test gets a unique schema; teardown drops it CASCADE so cleanup is automatic."""
+    name = f"integ_{uuid.uuid4().hex[:8]}"
+    schema = f"test_{uuid.uuid4().hex[:10]}"
+    db = os.environ["ALTERTABLE_TEST_DATABASE"].strip()
+    base = tmp_path / name
+    base.mkdir()
+
+    flight_client.query(f"create schema if not exists {quoted_ident(db, schema)}").read_all()
+    write_profiles(base, INTEGRATION_PROFILE, schema=schema)
+
+    try:
+        yield DbtProject(base=base, name=name, schema=schema)
+    finally:
+        with contextlib.suppress(Exception):
+            flight_client.query(
+                f"drop schema if exists {quoted_ident(db, schema)} cascade"
+            ).read_all()
