@@ -1,184 +1,92 @@
 from __future__ import annotations
 
-import contextlib
-import os
-import uuid
-from pathlib import Path
+from typing import Any
 
 import pytest
 
-from tests.integration._helpers import (
-    flight_client_ctx,
-    quoted_ident,
-    run_dbt,
-    skip_if_missing_integration_env,
-    sql_string_literal,
-    write_profiles,
-)
+from tests.integration._helpers import DbtProject, sql_string_literal
 
-PROFILE = "persist_docs_integration"
+MODEL = "pd_integ"
+VIEW_MODEL = "pd_view"
 
-
-def _write_project(tmp: Path, model_name: str) -> None:
-    (tmp / "models").mkdir(parents=True)
-    model_sql = "{{ config(materialized='table') }}\n\nselect 1 as id, 'x' as msg\n"
-    (tmp / "models" / f"{model_name}.sql").write_text(
-        model_sql,
-        encoding="utf-8",
-    )
-    (tmp / "models" / "_persist_docs_models.yml").write_text(
-        f"""\
+MODELS_YML = f"""\
 version: 2
 
 models:
-  - name: {model_name}
+  - name: {MODEL}
     description: "Integration relation doc"
     columns:
       - name: id
         description: "Integration column id"
       - name: msg
         description: "Integration column msg"
-""",
-        encoding="utf-8",
-    )
-    (tmp / "dbt_project.yml").write_text(
-        """\
-name: persist_docs_integration
-version: "1.0.0"
-config-version: 2
-profile: persist_docs_integration
+"""
 
-model-paths: ["models"]
-
-models:
-  persist_docs_integration:
-    +materialized: table
-    +persist_docs:
-      relation: true
-      columns: true
-""",
-        encoding="utf-8",
-    )
-
-
-@pytest.mark.altertable_integration
-def test_persist_docs_comments_roundtrip(tmp_path: Path) -> None:
-    skip_if_missing_integration_env()
-
-    model_name = f"pd_integ_{uuid.uuid4().hex[:10]}"
-    _write_project(tmp_path, model_name)
-    write_profiles(tmp_path, PROFILE)
-
-    db = os.environ["ALTERTABLE_TEST_DATABASE"].strip()
-    schema = os.environ["ALTERTABLE_TEST_SCHEMA"].strip()
-
-    proc = run_dbt(
-        [
-            "run",
-            "--project-dir",
-            str(tmp_path),
-            "--profiles-dir",
-            str(tmp_path),
-            "--select",
-            model_name,
-        ],
-        tmp_path,
-    )
-    assert proc.returncode == 0, f"dbt run failed:\n{proc.stdout}\n{proc.stderr}"
-
-    with flight_client_ctx() as client:
-        q_table = (
-            "select comment from duckdb_tables() "
-            f"where lower(database_name) = lower({sql_string_literal(db)}) "
-            f"and lower(schema_name) = lower({sql_string_literal(schema)}) "
-            f"and lower(table_name) = lower({sql_string_literal(model_name)}) "
-            "limit 1"
-        )
-        tbl = client.query(q_table).read_all()
-        assert tbl.num_rows == 1, (
-            f"Expected one row from duckdb_tables for {model_name}, got {tbl.num_rows}"
-        )
-        row = tbl.to_pylist()[0]
-        rel_comment = row["comment"]
-        assert rel_comment == "Integration relation doc"
-
-        q_cols = (
-            "select column_name, comment from duckdb_columns() "
-            f"where lower(database_name) = lower({sql_string_literal(db)}) "
-            f"and lower(schema_name) = lower({sql_string_literal(schema)}) "
-            f"and lower(table_name) = lower({sql_string_literal(model_name)}) "
-            "order by column_index"
-        )
-        ctbl = client.query(q_cols).read_all()
-        by_name = {row["column_name"]: row["comment"] for row in ctbl.to_pylist()}
-        assert by_name.get("id") == "Integration column id"
-        assert by_name.get("msg") == "Integration column msg"
-
-        drop_sql = f"drop table if exists {quoted_ident(db, schema, model_name)}"
-        with contextlib.suppress(Exception):
-            client.query(drop_sql).read_all()
-
-
-def _write_view_project_with_column_docs(tmp: Path, model_name: str) -> None:
-    (tmp / "models").mkdir(parents=True)
-    (tmp / "models" / f"{model_name}.sql").write_text(
-        "{{ config(materialized='view') }}\n\nselect 1 as id, 'x' as msg\n",
-        encoding="utf-8",
-    )
-    (tmp / "models" / "_persist_docs_view_models.yml").write_text(
-        f"""\
+VIEW_MODELS_YML = f"""\
 version: 2
 
 models:
-  - name: {model_name}
+  - name: {VIEW_MODEL}
     description: "View relation doc"
     columns:
       - name: id
         description: "Column id doc"
       - name: msg
         description: "Column msg doc"
-""",
-        encoding="utf-8",
-    )
-    (tmp / "dbt_project.yml").write_text(
-        """\
-name: persist_docs_view_integration
-version: "1.0.0"
-config-version: 2
-profile: persist_docs_integration
-
-model-paths: ["models"]
-
-models:
-  persist_docs_view_integration:
-    +persist_docs:
-      relation: true
-      columns: true
-""",
-        encoding="utf-8",
-    )
+"""
 
 
 @pytest.mark.altertable_integration
-def test_persist_docs_column_comments_on_view_fail_clearly(tmp_path: Path) -> None:
-    skip_if_missing_integration_env()
-
-    model_name = f"pd_view_{uuid.uuid4().hex[:10]}"
-    _write_view_project_with_column_docs(tmp_path, model_name)
-    write_profiles(tmp_path, PROFILE)
-
-    proc = run_dbt(
-        [
-            "run",
-            "--project-dir",
-            str(tmp_path),
-            "--profiles-dir",
-            str(tmp_path),
-            "--select",
-            model_name,
-        ],
-        tmp_path,
+def test_persist_docs_comments_roundtrip(dbt_project: DbtProject, flight_client: Any) -> None:
+    dbt_project.write_project_yml(
+        models={"+materialized": "table", "+persist_docs": {"relation": True, "columns": True}},
     )
+    dbt_project.write_model(
+        MODEL, "{{ config(materialized='table') }}\n\nselect 1 as id, 'x' as msg\n"
+    )
+    dbt_project.write_models_yml("_persist_docs_models", MODELS_YML)
+
+    dbt_project.run("run", "--select", MODEL)
+
+    db, schema = dbt_project.db, dbt_project.schema
+    q_table = (
+        "select comment from duckdb_tables() "
+        f"where lower(database_name) = lower({sql_string_literal(db)}) "
+        f"and lower(schema_name) = lower({sql_string_literal(schema)}) "
+        f"and lower(table_name) = lower({sql_string_literal(MODEL)}) "
+        "limit 1"
+    )
+    tbl = flight_client.query(q_table).read_all()
+    assert tbl.num_rows == 1, f"Expected one row from duckdb_tables for {MODEL}, got {tbl.num_rows}"
+    assert tbl.to_pylist()[0]["comment"] == "Integration relation doc"
+
+    q_cols = (
+        "select column_name, comment from duckdb_columns() "
+        f"where lower(database_name) = lower({sql_string_literal(db)}) "
+        f"and lower(schema_name) = lower({sql_string_literal(schema)}) "
+        f"and lower(table_name) = lower({sql_string_literal(MODEL)}) "
+        "order by column_index"
+    )
+    by_name = {
+        row["column_name"]: row["comment"]
+        for row in flight_client.query(q_cols).read_all().to_pylist()
+    }
+    assert by_name.get("id") == "Integration column id"
+    assert by_name.get("msg") == "Integration column msg"
+
+
+@pytest.mark.altertable_integration
+def test_persist_docs_column_comments_on_view_fail_clearly(dbt_project: DbtProject) -> None:
+    dbt_project.write_project_yml(
+        models={"+persist_docs": {"relation": True, "columns": True}},
+    )
+    dbt_project.write_model(
+        VIEW_MODEL, "{{ config(materialized='view') }}\n\nselect 1 as id, 'x' as msg\n"
+    )
+    dbt_project.write_models_yml("_persist_docs_view_models", VIEW_MODELS_YML)
+
+    proc = dbt_project.run("run", "--select", VIEW_MODEL, check=False)
+
     assert proc.returncode != 0, "expected dbt run to fail when persisting column docs on a view"
     combined = f"{proc.stdout}\n{proc.stderr}"
     assert "COMMENT ON COLUMN for views" in combined
