@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "DBT adapter for Altertable"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 authors = [
     {name = "Altertable Team", email = "leo@altertable.ai"}
 ]
