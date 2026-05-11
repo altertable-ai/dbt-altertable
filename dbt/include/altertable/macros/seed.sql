@@ -8,7 +8,7 @@
 {% endmacro %}
 
 {% macro altertable__load_csv_rows(model, agate_table) %}
-    {% if config.get('fast', true) %}
+    {% if config.get('fast', false) %}
         {% set seed_file_path = adapter.get_seed_file_path(model) %}
         {% set delimiter = config.get('delimiter', ',') %}
         {% set sql %}
