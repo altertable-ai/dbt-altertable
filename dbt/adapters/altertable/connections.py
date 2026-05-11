@@ -296,7 +296,10 @@ class AltertableConnectionManager(SQLConnectionManager):
 
         except Exception as e:
             logger.error(f"Error executing SQL: {sql}")
-            raise DbtRuntimeError(str(e)) from e
+            sql_preview = sql.strip()
+            if len(sql_preview) > 2000:
+                sql_preview = sql_preview[:2000] + "\n... (truncated)"
+            raise DbtRuntimeError(f"{e}\n\nSQL:\n{sql_preview}") from e
 
     def cancel(self, connection: Connection) -> None:
         logger.debug(f"Attempting to cancel connection: {connection.name}")

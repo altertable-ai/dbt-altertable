@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
     AltertableConnectionManager,
@@ -91,3 +92,28 @@ def test_catalog_alias_maps_to_database():
     )
 
     assert creds.database == "altertable_test"
+
+
+def test_exception_handler_includes_failing_sql_in_raised_error() -> None:
+    manager = AltertableConnectionManager.__new__(AltertableConnectionManager)
+    failing_sql = "select count(*) from prod_db.staging.users where job_title not in ('a', 'b')"
+
+    with pytest.raises(DbtRuntimeError) as exc_info, manager.exception_handler(failing_sql):
+        raise RuntimeError("Flight returned internal error, with message: Internal error")
+
+    error_message = str(exc_info.value)
+    assert "Flight returned internal error" in error_message
+    assert failing_sql in error_message
+
+
+def test_exception_handler_truncates_very_long_sql_in_raised_error() -> None:
+    manager = AltertableConnectionManager.__new__(AltertableConnectionManager)
+    long_sql = "select * from foo where x in (" + ",".join(str(i) for i in range(1000)) + ")"
+    assert len(long_sql) > 2000
+
+    with pytest.raises(DbtRuntimeError) as exc_info, manager.exception_handler(long_sql):
+        raise RuntimeError("Flight error")
+
+    error_message = str(exc_info.value)
+    assert "(truncated)" in error_message
+    assert len(error_message) < len(long_sql) + 200
