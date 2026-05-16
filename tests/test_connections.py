@@ -6,6 +6,7 @@ import pyarrow as pa
 import pytest
 
 from dbt.adapters.altertable.connections import (
+    AltertableConnection,
     AltertableConnectionManager,
     _normalize_flight_sql_scalar,
 )
@@ -27,12 +28,16 @@ def base_creds_kwargs():
 
 @pytest.fixture
 def mock_client_cls(mocker):
+    AltertableConnectionManager._shared_client = None
+    AltertableConnectionManager._shared_credentials_key = None
     cls_mock = mocker.patch("dbt.adapters.altertable.connections.altertable_flightsql.Client")
     cls_mock.return_value = MagicMock()
     return cls_mock
 
 
-def test_connect_client_opens_session_without_binding_a_catalog(mock_client_cls, base_creds_kwargs):
+def test_connect_client_passes_database_and_schema_as_catalog_and_schema(
+    mock_client_cls, base_creds_kwargs
+):
     creds = AltertableCredentials(**base_creds_kwargs)
 
     AltertableConnectionManager._connect_client(creds)
@@ -40,13 +45,46 @@ def test_connect_client_opens_session_without_binding_a_catalog(mock_client_cls,
     mock_client_cls.assert_called_once_with(
         username=base_creds_kwargs["username"],
         password=base_creds_kwargs["password"],
-        catalog=None,
-        schema=None,
+        catalog=base_creds_kwargs["database"],
+        schema=base_creds_kwargs["schema"],
         host=base_creds_kwargs["host"],
         port=base_creds_kwargs["port"],
         tls=base_creds_kwargs["tls"],
     )
     mock_client_cls.return_value.query.assert_not_called()
+
+
+def test_connect_client_reuses_shared_client_for_same_credentials(
+    mock_client_cls, base_creds_kwargs
+):
+    creds = AltertableCredentials(**base_creds_kwargs)
+
+    conn1 = AltertableConnectionManager._connect_client(creds)
+    conn2 = AltertableConnectionManager._connect_client(creds)
+
+    assert mock_client_cls.call_count == 1
+    assert conn1._client is conn2._client
+
+
+def test_connect_client_creates_new_client_when_credentials_change(
+    mock_client_cls, base_creds_kwargs
+):
+    creds1 = AltertableCredentials(**base_creds_kwargs)
+    creds2 = AltertableCredentials(**{**base_creds_kwargs, "database": "other_catalog"})
+
+    AltertableConnectionManager._connect_client(creds1)
+    AltertableConnectionManager._connect_client(creds2)
+
+    assert mock_client_cls.call_count == 2
+
+
+def test_altertable_connection_close_does_not_close_underlying_client():
+    mock_client = MagicMock()
+    conn = AltertableConnection(mock_client)
+
+    conn.close()
+
+    mock_client.close.assert_not_called()
 
 
 def test_data_type_code_to_name_maps_arrow_types() -> None:
