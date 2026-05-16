@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.4](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.3...dbt-altertable-v0.2.4) (2026-05-16)
+
+
+### Features
+
+* add MetricFlow compatibility patch for dbt-altertable ([#26](https://github.com/altertable-ai/dbt-altertable/issues/26)) ([8cad37f](https://github.com/altertable-ai/dbt-altertable/commit/8cad37f7312b66456707d9a328e072f328930b28))
+
+
+### Bug Fixes
+
+* reuse shared client across threads ([#30](https://github.com/altertable-ai/dbt-altertable/issues/30)) ([9bb3d76](https://github.com/altertable-ai/dbt-altertable/commit/9bb3d763ea77b25151570c43f465c09e9b59af09))
+* **seeds:** default to INSERT batches and gate COPY fast path ([#29](https://github.com/altertable-ai/dbt-altertable/issues/29)) ([7f87082](https://github.com/altertable-ai/dbt-altertable/commit/7f87082471ac8a999db611ac23db80d96351afb6))
+
 ## [0.2.3](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.2...dbt-altertable-v0.2.3) (2026-04-28)
 
 
