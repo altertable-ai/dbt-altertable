@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import altertable_flightsql
 import pyarrow as pa
 import pyarrow.types as patypes
+import sqlparse
 from dbt.adapters.contracts.connection import (
     AdapterResponse,
     Connection,
@@ -24,6 +25,36 @@ if TYPE_CHECKING:
     import agate
 
 logger = AdapterLogger("Altertable")
+
+
+# Statements that wrap multi-statement blocks but are no-ops against the altertable
+# adapter (the connection manager's begin/commit are no-ops; Flight has no server-side
+# transactions). They appear in macros like Elementary's `delete_and_insert`.
+_TRANSACTION_NOOPS = frozenset({"begin", "begin transaction", "commit", "rollback"})
+
+
+def _split_sql_into_statements(sql: str) -> list[str]:
+    """Split a possibly multi-statement SQL string into individual statements.
+
+    Flight SQL's prepared-statement protocol accepts one statement per call. Most
+    dbt-emitted SQL is single-statement, but some macros (Elementary's
+    ``delete_and_insert``, dbt-osmosis hooks, project-level on-run-end blocks)
+    build ``BEGIN TRANSACTION; ...; COMMIT;`` strings. Splitting here lets the
+    adapter accept those without forcing every caller to ship an adapter-specific
+    macro override.
+
+    Transaction-control statements are filtered out because this adapter does not
+    implement server-side transactions.
+    """
+    out: list[str] = []
+    for raw in sqlparse.split(sql):
+        normalized = raw.strip().rstrip(";").strip()
+        if not normalized:
+            continue
+        if normalized.lower() in _TRANSACTION_NOOPS:
+            continue
+        out.append(raw)
+    return out
 
 
 def _normalize_flight_sql_scalar(value: Any) -> Any:
@@ -166,7 +197,12 @@ class AltertableCursor:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
         else:
-            reader = self._client.query(sql)
+            statements = _split_sql_into_statements(sql)
+            if not statements:
+                return self
+            for stmt in statements[:-1]:
+                self._client.query(stmt).read_all()
+            reader = self._client.query(statements[-1])
             self._table = reader.read_all()
 
         return self
