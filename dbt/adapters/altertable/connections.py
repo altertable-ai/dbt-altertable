@@ -351,11 +351,13 @@ class AltertableConnectionManager(SQLConnectionManager):
         )
         with cls._client_lock:
             if cls._shared_client is None or cls._shared_credentials_key != key:
+                # Credentials qualify dbt relations. The Flight session stays unscoped so
+                # authorized source catalogs remain attached.
                 cls._shared_client = altertable_flightsql.Client(
                     username=credentials.username,
                     password=credentials.password,
-                    catalog=credentials.database,
-                    schema=credentials.schema,
+                    catalog=None,
+                    schema=None,
                     host=credentials.host,
                     port=credentials.port,
                     tls=credentials.tls,

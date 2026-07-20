@@ -35,9 +35,7 @@ def mock_client_cls(mocker):
     return cls_mock
 
 
-def test_connect_client_passes_database_and_schema_as_catalog_and_schema(
-    mock_client_cls, base_creds_kwargs
-):
+def test_connect_client_keeps_flight_session_unscoped(mock_client_cls, base_creds_kwargs):
     creds = AltertableCredentials(**base_creds_kwargs)
 
     AltertableConnectionManager._connect_client(creds)
@@ -45,8 +43,8 @@ def test_connect_client_passes_database_and_schema_as_catalog_and_schema(
     mock_client_cls.assert_called_once_with(
         username=base_creds_kwargs["username"],
         password=base_creds_kwargs["password"],
-        catalog=base_creds_kwargs["database"],
-        schema=base_creds_kwargs["schema"],
+        catalog=None,
+        schema=None,
         host=base_creds_kwargs["host"],
         port=base_creds_kwargs["port"],
         tls=base_creds_kwargs["tls"],
