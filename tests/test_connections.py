@@ -28,8 +28,6 @@ def base_creds_kwargs():
 
 @pytest.fixture
 def mock_client_cls(mocker):
-    AltertableConnectionManager._shared_client = None
-    AltertableConnectionManager._shared_credentials_key = None
     cls_mock = mocker.patch("dbt.adapters.altertable.connections.altertable_flightsql.Client")
     cls_mock.return_value = MagicMock()
     return cls_mock
@@ -52,37 +50,38 @@ def test_connect_client_keeps_flight_session_unscoped(mock_client_cls, base_cred
     mock_client_cls.return_value.query.assert_not_called()
 
 
-def test_connect_client_reuses_shared_client_for_same_credentials(
-    mock_client_cls, base_creds_kwargs
-):
+def test_connect_client_creates_client_for_each_dbt_connection(mock_client_cls, base_creds_kwargs):
     creds = AltertableCredentials(**base_creds_kwargs)
+    first_client = MagicMock()
+    second_client = MagicMock()
+    mock_client_cls.side_effect = [first_client, second_client]
 
-    conn1 = AltertableConnectionManager._connect_client(creds)
-    conn2 = AltertableConnectionManager._connect_client(creds)
-
-    assert mock_client_cls.call_count == 1
-    assert conn1._client is conn2._client
-
-
-def test_connect_client_creates_new_client_when_credentials_change(
-    mock_client_cls, base_creds_kwargs
-):
-    creds1 = AltertableCredentials(**base_creds_kwargs)
-    creds2 = AltertableCredentials(**{**base_creds_kwargs, "database": "other_catalog"})
-
-    AltertableConnectionManager._connect_client(creds1)
-    AltertableConnectionManager._connect_client(creds2)
+    first_connection = AltertableConnectionManager._connect_client(creds)
+    second_connection = AltertableConnectionManager._connect_client(creds)
 
     assert mock_client_cls.call_count == 2
+    assert first_connection._client is first_client
+    assert second_connection._client is second_client
 
 
-def test_altertable_connection_close_does_not_close_underlying_client():
+def test_altertable_connection_close_closes_underlying_client():
     mock_client = MagicMock()
     conn = AltertableConnection(mock_client)
 
     conn.close()
 
-    mock_client.close.assert_not_called()
+    mock_client.close.assert_called_once_with()
+
+
+def test_altertable_connection_close_does_not_interrupt_dbt_cleanup(mocker):
+    mock_client = MagicMock()
+    mock_client.close.side_effect = RuntimeError("close session failed")
+    warning = mocker.patch("dbt.adapters.altertable.connections.logger.warning")
+    conn = AltertableConnection(mock_client)
+
+    conn.close()
+
+    warning.assert_called_once_with("Failed to close Flight session: close session failed")
 
 
 def test_data_type_code_to_name_maps_arrow_types() -> None:
