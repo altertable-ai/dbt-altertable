@@ -1,3 +1,4 @@
+import reprlib
 import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -46,6 +47,14 @@ def _split_sql_into_statements(sql: str) -> list[str]:
     Transaction-control statements are filtered out because this adapter does not
     implement server-side transactions.
     """
+    # Fast path: sqlparse fully tokenizes the input, which is pure overhead for the
+    # overwhelmingly common case of single-statement SQL with no semicolon. A ";"
+    # inside a string literal simply falls through to sqlparse, so this stays correct.
+    if ";" not in sql:
+        normalized = sql.strip()
+        if not normalized or normalized.lower() in _TRANSACTION_NOOPS:
+            return []
+        return [sql]
     out: list[str] = []
     for raw in sqlparse.split(sql):
         normalized = raw.strip().rstrip(";").strip()
@@ -190,9 +199,12 @@ class AltertableCursor:
 
         logger.debug(f"Executing SQL: {sql}")
         if bindings is not None:
-            logger.debug(f"With bindings: {bindings!r}")
+            # dbt's event pipeline formats every fired event eagerly (even when debug
+            # logging is off), so bound the cost with a truncated repr: seed loads bind
+            # thousands of values per statement.
+            logger.debug(f"With bindings: {reprlib.repr(bindings)}")
             params = _normalize_flight_sql_parameters(bindings)
-            logger.debug(f"Normalized bindings: {params!r}")
+            logger.debug(f"Normalized bindings: {reprlib.repr(params)}")
             with self._client.prepare(sql) as stmt:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
@@ -210,8 +222,10 @@ class AltertableCursor:
     def _slice_to_rows(self, offset: int, length: int) -> list[tuple[Any, ...]]:
         if self._table is None or length <= 0:
             return []
-        chunk = self._table.slice(offset, length).to_pylist()
-        return [tuple(row.values()) for row in chunk]
+        chunk = self._table.slice(offset, length)
+        # Column-wise conversion; to_pylist() would build (and hash keys for) one
+        # dict per row only for us to throw them away.
+        return list(zip(*(column.to_pylist() for column in chunk.columns), strict=True))
 
     def fetchone(self) -> tuple[Any, ...] | None:
         """
