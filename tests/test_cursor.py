@@ -104,3 +104,88 @@ def test_get_result_from_cursor_returns_empty_agate_table_when_cursor_has_no_res
     result = AltertableConnectionManager.get_result_from_cursor(cursor, None)
 
     assert len(result.rows) == 0
+
+
+def _session_lost_error() -> Exception:
+    return Exception(
+        'Flight returned internal error, with message: {"message":{"value":"Session not found"}}'
+    )
+
+
+def test_execute_reconnects_and_retries_once_when_worker_dropped_the_session(
+    monkeypatch: pytest.MonkeyPatch, sample_table: pa.Table
+):
+    stale = MagicMock()
+    stale.query.side_effect = _session_lost_error()
+    healthy = MagicMock()
+    healthy.query.return_value.read_all.return_value = sample_table
+    monkeypatch.setattr(AltertableConnectionManager, "reconnect", lambda _stale: healthy)
+
+    cursor = AltertableCursor(stale)
+    cursor.execute("insert into t values (1)")
+
+    assert cursor._client is healthy
+    assert cursor.table is sample_table
+    stale.query.assert_called_once()
+    healthy.query.assert_called_once()
+
+
+def test_execute_retries_only_the_failed_statement_of_a_batch(
+    monkeypatch: pytest.MonkeyPatch, sample_table: pa.Table
+):
+    stale = MagicMock()
+    delete_reader = MagicMock()
+    delete_reader.read_all.return_value = pa.table({"x": [1]})
+    stale.query.side_effect = [delete_reader, _session_lost_error()]
+    healthy = MagicMock()
+    healthy.query.return_value.read_all.return_value = sample_table
+    monkeypatch.setattr(AltertableConnectionManager, "reconnect", lambda _stale: healthy)
+
+    cursor = AltertableCursor(stale)
+    cursor.execute("DELETE FROM t WHERE id = 1; INSERT INTO t SELECT 1;")
+
+    # the DELETE ran once on the old session and must not be re-run
+    assert stale.query.call_count == 2
+    healthy.query.assert_called_once()
+    assert "INSERT INTO t" in healthy.query.call_args.args[0]
+    assert cursor.table is sample_table
+
+
+def test_execute_reraises_non_session_errors_without_reconnecting(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    reconnects = []
+    monkeypatch.setattr(
+        AltertableConnectionManager, "reconnect", lambda stale: reconnects.append(stale)
+    )
+    client = MagicMock()
+    client.query.side_effect = ValueError("syntax error near FROM")
+
+    cursor = AltertableCursor(client)
+    with pytest.raises(ValueError, match="syntax error near FROM"):
+        cursor.execute("select bogus")
+
+    assert reconnects == []
+
+
+def test_reconnect_rebuilds_shared_client_once_for_a_dead_client(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    dead, fresh = MagicMock(), MagicMock()
+    builds = []
+    monkeypatch.setattr(AltertableConnectionManager, "_shared_client", dead)
+    monkeypatch.setattr(AltertableConnectionManager, "_shared_credentials", MagicMock())
+    monkeypatch.setattr(
+        AltertableConnectionManager,
+        "_build_client",
+        lambda _creds: (builds.append(1), fresh)[1],
+    )
+
+    assert AltertableConnectionManager.reconnect(dead) is fresh
+    assert AltertableConnectionManager._shared_client is fresh
+    # a straggler thread still holding the dead client shares the rebuilt one, no second handshake
+    assert AltertableConnectionManager.reconnect(dead) is fresh
+    assert len(builds) == 1
+    # other threads may still be mid-statement on the dead client; closing its
+    # channel would turn their retryable session-lost errors into fatal ones
+    dead.close.assert_not_called()

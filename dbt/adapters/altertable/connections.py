@@ -1,5 +1,5 @@
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -31,6 +31,12 @@ logger = AdapterLogger("Altertable")
 # adapter (the connection manager's begin/commit are no-ops; Flight has no server-side
 # transactions). They appear in macros like Elementary's `delete_and_insert`.
 _TRANSACTION_NOOPS = frozenset({"begin", "begin transaction", "commit", "rollback"})
+
+# One Flight session backs every thread for the whole build. When the worker pod
+# holding it churns, that session is gone and the next statement (usually the
+# on-run-end result upload, which runs after the long model/test phase) fails with
+# this message. We re-handshake and retry once instead of failing the invocation.
+_SESSION_LOST_SIGNAL = "Session not found"
 
 
 def _split_sql_into_statements(sql: str) -> list[str]:
@@ -193,19 +199,31 @@ class AltertableCursor:
             logger.debug(f"With bindings: {bindings!r}")
             params = _normalize_flight_sql_parameters(bindings)
             logger.debug(f"Normalized bindings: {params!r}")
-            with self._client.prepare(sql) as stmt:
-                reader = stmt.query(parameters=params)
-                self._table = reader.read_all()
-        else:
-            statements = _split_sql_into_statements(sql)
-            if not statements:
-                return self
-            for stmt in statements[:-1]:
-                self._client.query(stmt).read_all()
-            reader = self._client.query(statements[-1])
-            self._table = reader.read_all()
+            self._table = self._run_with_session_retry(lambda: self._execute_prepared(sql, params))
+            return self
 
+        # Retry per statement so an already-executed prefix of a multi-statement
+        # batch is not re-run when the session drops mid-batch.
+        for statement in _split_sql_into_statements(sql):
+            self._table = self._run_with_session_retry(
+                lambda statement=statement: self._client.query(statement).read_all()
+            )
         return self
+
+    def _execute_prepared(self, sql: str, params: Sequence[Any] | Mapping[str, Any]) -> pa.Table:
+        with self._client.prepare(sql) as stmt:
+            return stmt.query(parameters=params).read_all()
+
+    def _run_with_session_retry(self, run: Callable[[], pa.Table]) -> pa.Table:
+        """Run one statement, re-handshaking the shared session once if it was lost."""
+        try:
+            return run()
+        except Exception as e:
+            if _SESSION_LOST_SIGNAL not in str(e):
+                raise
+            logger.warning("Flight session lost; re-establishing it and retrying once")
+            self._client = AltertableConnectionManager.reconnect(self._client)
+            return run()
 
     def _slice_to_rows(self, offset: int, length: int) -> list[tuple[Any, ...]]:
         if self._table is None or length <= 0:
@@ -298,8 +316,8 @@ class AltertableConnection:
         self.close()
 
     def cursor(self) -> AltertableCursor:
-        """Create a new cursor for this connection."""
-        return AltertableCursor(self._client)
+        """Create a new cursor bound to the current shared client (survives a reconnect)."""
+        return AltertableCursor(AltertableConnectionManager._shared_client or self._client)
 
     def close(self) -> None:
         pass
@@ -316,6 +334,7 @@ class AltertableConnectionManager(SQLConnectionManager):
     _client_lock: threading.Lock = threading.Lock()
     _shared_client: altertable_flightsql.Client | None = None
     _shared_credentials_key: tuple | None = None
+    _shared_credentials: AltertableCredentials | None = None
 
     @classmethod
     def data_type_code_to_name(cls, type_code: Any) -> str:
@@ -387,17 +406,37 @@ class AltertableConnectionManager(SQLConnectionManager):
         )
         with cls._client_lock:
             if cls._shared_client is None or cls._shared_credentials_key != key:
-                cls._shared_client = altertable_flightsql.Client(
-                    username=credentials.username,
-                    password=credentials.password,
-                    catalog=credentials.database,
-                    schema=credentials.schema,
-                    host=credentials.host,
-                    port=credentials.port,
-                    tls=credentials.tls,
-                )
+                cls._shared_client = cls._build_client(credentials)
                 cls._shared_credentials_key = key
+                cls._shared_credentials = credentials
         return AltertableConnection(cls._shared_client)
+
+    @staticmethod
+    def _build_client(credentials: AltertableCredentials) -> "altertable_flightsql.Client":
+        return altertable_flightsql.Client(
+            username=credentials.username,
+            password=credentials.password,
+            catalog=credentials.database,
+            schema=credentials.schema,
+            host=credentials.host,
+            port=credentials.port,
+            tls=credentials.tls,
+        )
+
+    @classmethod
+    def reconnect(cls, stale: "altertable_flightsql.Client") -> "altertable_flightsql.Client":
+        """Re-handshake a fresh shared client after a worker dropped our session.
+
+        Guarded so that concurrent callers who all saw the same dead client share a
+        single new session rather than each opening their own. The stale client is
+        deliberately left open: other threads may still be mid-statement on it, and
+        closing the channel would turn their retryable session-lost errors into
+        fatal closed-channel failures. It is released to the GC instead.
+        """
+        with cls._client_lock:
+            if cls._shared_client is stale and cls._shared_credentials is not None:
+                cls._shared_client = cls._build_client(cls._shared_credentials)
+            return cls._shared_client if cls._shared_client is not None else stale
 
     @classmethod
     def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:
