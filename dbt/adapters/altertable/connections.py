@@ -1,4 +1,3 @@
-import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -266,7 +265,10 @@ class AltertableConnection:
         return AltertableCursor(self._client)
 
     def close(self) -> None:
-        pass
+        try:
+            self._client.close()
+        except Exception as e:
+            logger.warning(f"Failed to close Flight session: {e}")
 
     def commit(self) -> None:
         """Commit current transaction (no-op for now as we use auto-commit)."""
@@ -277,9 +279,6 @@ class AltertableConnection:
 
 class AltertableConnectionManager(SQLConnectionManager):
     TYPE = "altertable"
-    _client_lock: threading.Lock = threading.Lock()
-    _shared_client: altertable_flightsql.Client | None = None
-    _shared_credentials_key: tuple | None = None
 
     @classmethod
     def data_type_code_to_name(cls, type_code: Any) -> str:
@@ -340,28 +339,16 @@ class AltertableConnectionManager(SQLConnectionManager):
 
     @classmethod
     def _connect_client(cls, credentials: AltertableCredentials) -> "AltertableConnection":
-        key = (
-            credentials.username,
-            credentials.password,
-            credentials.host,
-            credentials.port,
-            credentials.database,
-            credentials.schema,
-            credentials.tls,
+        client = altertable_flightsql.Client(
+            username=credentials.username,
+            password=credentials.password,
+            catalog=None,
+            schema=None,
+            host=credentials.host,
+            port=credentials.port,
+            tls=credentials.tls,
         )
-        with cls._client_lock:
-            if cls._shared_client is None or cls._shared_credentials_key != key:
-                cls._shared_client = altertable_flightsql.Client(
-                    username=credentials.username,
-                    password=credentials.password,
-                    catalog=credentials.database,
-                    schema=credentials.schema,
-                    host=credentials.host,
-                    port=credentials.port,
-                    tls=credentials.tls,
-                )
-                cls._shared_credentials_key = key
-        return AltertableConnection(cls._shared_client)
+        return AltertableConnection(client)
 
     @classmethod
     def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:
