@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.4...dbt-altertable-v0.2.5) (2026-07-25)
+
+
+### Performance Improvements
+
+* **connections:** isolate Flight sessions per dbt connection ([#33](https://github.com/altertable-ai/dbt-altertable/issues/33)) ([37787a6](https://github.com/altertable-ai/dbt-altertable/commit/37787a6271698911eecda935e5278ecc44074400))
+
 ## [0.2.4](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.3...dbt-altertable-v0.2.4) (2026-05-16)
 
 
