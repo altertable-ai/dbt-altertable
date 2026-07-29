@@ -214,6 +214,48 @@ def materialize(df, con):
   {{ current_timestamp() }}::timestamp
 {%- endmacro %}
 
+{#
+  dbt's default__get_delete_insert_merge_sql returns DELETE and INSERT as one
+  semicolon-separated string, which Flight SQL rejects because it accepts a single
+  statement per round-trip. We execute the DELETE as an auto-begin statement and
+  return only the INSERT for the materialization's main statement. Both statements
+  stay identical to dbt's and share the materialization transaction.
+#}
+{% macro altertable__get_incremental_delete_insert_sql(arg_dict) %}
+  {%- set target = arg_dict["target_relation"] -%}
+  {%- set source = arg_dict["temp_relation"] -%}
+  {%- set unique_key = arg_dict["unique_key"] -%}
+  {%- set incremental_predicates = arg_dict["incremental_predicates"] -%}
+  {%- set dest_cols_csv = get_quoted_csv(arg_dict["dest_columns"] | map(attribute="name")) -%}
+
+  {%- if unique_key -%}
+    {%- if unique_key is string -%}
+      {%- set unique_key = [unique_key] -%}
+    {%- endif -%}
+    {%- set unique_key_str = unique_key | join(", ") -%}
+
+    {%- set delete_sql -%}
+      delete from {{ target }} as DBT_INTERNAL_DEST
+      where ({{ unique_key_str }}) in (
+        select distinct {{ unique_key_str }}
+        from {{ source }} as DBT_INTERNAL_SOURCE
+      )
+      {%- for predicate in incremental_predicates or [] %}
+      and {{ predicate }}
+      {%- endfor %}
+    {%- endset -%}
+    {% call statement("delete_incremental_rows", auto_begin=true) -%}
+      {{ delete_sql }}
+    {%- endcall %}
+  {%- endif %}
+
+  insert into {{ target }} ({{ dest_cols_csv }})
+  (
+    select {{ dest_cols_csv }}
+    from {{ source }}
+  )
+{% endmacro %}
+
 {% macro altertable__get_incremental_default_sql(arg_dict) %}
   {% do return(get_incremental_delete_insert_sql(arg_dict)) %}
 {% endmacro %}

@@ -9,6 +9,9 @@ from dbt.adapters.altertable.connections import AltertableConnectionManager
 class AltertableAdapter(SQLAdapter):
     ConnectionManager = AltertableConnectionManager
 
+    def valid_incremental_strategies(self) -> list[str]:
+        return ["append", "delete+insert"]
+
     @classmethod
     def date_function(cls) -> str:
         return "now()"
