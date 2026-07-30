@@ -21,6 +21,7 @@ from dbt.adapters.altertable.credentials import AltertableCredentials
 
 if TYPE_CHECKING:
     import agate
+    from altertable_flightsql.client import Transaction
 
 logger = AdapterLogger("Altertable")
 
@@ -100,8 +101,13 @@ class AltertableCursor:
     (``cursor.table``) and converted to Python tuples on demand in ``fetch*``.
     """
 
-    def __init__(self, client: altertable_flightsql.Client) -> None:
+    def __init__(
+        self,
+        client: altertable_flightsql.Client,
+        transaction: "Transaction | None" = None,
+    ) -> None:
         self._client = client
+        self._transaction = transaction
         self._table: pa.Table | None = None
         self._cursor_position: int = 0
 
@@ -161,11 +167,11 @@ class AltertableCursor:
             logger.debug(f"With bindings: {bindings!r}")
             params = _normalize_flight_sql_parameters(bindings)
             logger.debug(f"Normalized bindings: {params!r}")
-            with self._client.prepare(sql) as stmt:
+            with self._client.prepare(sql, transaction=self._transaction) as stmt:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
         else:
-            reader = self._client.query(sql)
+            reader = self._client.query(sql, transaction=self._transaction)
             self._table = reader.read_all()
 
         return self
@@ -248,6 +254,7 @@ class AltertableConnection:
 
     def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
+        self._transaction: Transaction | None = None
 
     def __enter__(self) -> "AltertableConnection":
         return self
@@ -262,7 +269,11 @@ class AltertableConnection:
 
     def cursor(self) -> AltertableCursor:
         """Create a new cursor for this connection."""
-        return AltertableCursor(self._client)
+        return AltertableCursor(self._client, self._transaction)
+
+    def begin(self) -> None:
+        if self._transaction is None:
+            self._transaction = self._client.begin_transaction()
 
     def close(self) -> None:
         try:
@@ -271,10 +282,14 @@ class AltertableConnection:
             logger.warning(f"Failed to close Flight session: {e}")
 
     def commit(self) -> None:
-        """Commit current transaction (no-op for now as we use auto-commit)."""
+        if self._transaction is not None:
+            self._client.commit_transaction(self._transaction)
+            self._transaction = None
 
     def rollback(self) -> None:
-        """Rollback current transaction (no-op for now as we use auto-commit)."""
+        if self._transaction is not None:
+            self._client.rollback_transaction(self._transaction)
+            self._transaction = None
 
 
 class AltertableConnectionManager(SQLConnectionManager):
@@ -298,6 +313,7 @@ class AltertableConnectionManager(SQLConnectionManager):
 
         except Exception as e:
             logger.error(f"Error executing SQL: {sql}")
+            self.rollback_if_open()
             raise DbtRuntimeError(str(e)) from e
 
     def cancel(self, connection: Connection) -> None:
@@ -305,20 +321,18 @@ class AltertableConnectionManager(SQLConnectionManager):
 
     def begin(self):
         connection = self.get_thread_connection()
+        connection.handle.begin()
         connection.transaction_open = True
         return connection
 
     def commit(self):
         connection = self.get_thread_connection()
+        connection.handle.commit()
         connection.transaction_open = False
         return connection
 
     def release(self) -> None:
-        with self.lock:
-            conn = self.get_if_exists()
-            if conn is None:
-                return
-        conn.transaction_open = False
+        self.rollback_if_open()
 
     @classmethod
     def open(cls, connection: Connection) -> Connection:
