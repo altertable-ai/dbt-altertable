@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.5...dbt-altertable-v0.2.6) (2026-07-30)
+
+
+### Bug Fixes
+
+* **incremental:** support delete-insert runs ([#35](https://github.com/altertable-ai/dbt-altertable/issues/35)) ([a093529](https://github.com/altertable-ai/dbt-altertable/commit/a09352924a014a72ec74f41fab75fc036740ee0e))
+
 ## [0.2.5](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.4...dbt-altertable-v0.2.5) (2026-07-25)
 
 
