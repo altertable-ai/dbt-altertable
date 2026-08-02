@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from tests.integration._helpers import DbtProject, count_in_catalog
+from tests.integration._helpers import DbtProject, count_in_catalog, sql_string_literal
 
 BASE_MODEL = "integ_base"
 VIEW_NAME = "integ_vw"
@@ -43,6 +43,21 @@ select 2 as id, 'second_run' as phase
 """
 
 
+def count_scratch_relations(
+    client: Any,
+    dbt_project: DbtProject,
+    model_name: str,
+) -> int:
+    prefix = sql_string_literal(f"{model_name}__dbt_tmp%")
+    query = (
+        "select count(*) as c from duckdb_tables() "
+        f"where database_name = {sql_string_literal(dbt_project.db)} "
+        f"and schema_name = {sql_string_literal(dbt_project.schema)} "
+        f"and table_name like {prefix}"
+    )
+    return int(client.query(query).read_all().to_pylist()[0]["c"])
+
+
 @pytest.mark.altertable_integration
 def test_view_and_incremental_append(dbt_project: DbtProject, flight_client: Any) -> None:
     dbt_project.write_project_yml(models={"+materialized": "table"})
@@ -76,6 +91,7 @@ def test_view_and_incremental_append(dbt_project: DbtProject, flight_client: Any
         .to_pylist()
     )
     assert {r["id"]: r["phase"] for r in rows} == {1: "first_run", 2: "second_run"}
+    assert count_scratch_relations(flight_client, dbt_project, INC_NAME) == 0
 
 
 @pytest.mark.altertable_integration
@@ -101,6 +117,7 @@ def test_incremental_default_replaces_rows_on_multiple_runs(
         {"id": 2, "phase": "second_run"},
         {"id": 3, "phase": "first_run"},
     ]
+    assert count_scratch_relations(flight_client, dbt_project, DELETE_INSERT_NAME) == 0
 
 
 @pytest.mark.altertable_integration
@@ -128,3 +145,4 @@ def test_incremental_default_rolls_back_delete_when_insert_fails(
         {"id": 1, "phase": "first_run"},
         {"id": 3, "phase": "first_run"},
     ]
+    assert count_scratch_relations(flight_client, dbt_project, DELETE_INSERT_NAME) == 0

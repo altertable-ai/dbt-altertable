@@ -84,6 +84,49 @@ def test_altertable_connection_close_does_not_interrupt_dbt_cleanup(mocker):
     warning.assert_called_once_with("Failed to close Flight session: close session failed")
 
 
+def test_rollback_drops_tracked_scratch_relations_after_ending_transaction():
+    mock_client = MagicMock()
+    transaction = MagicMock()
+    mock_client.begin_transaction.return_value = transaction
+    conn = AltertableConnection(mock_client)
+    conn.begin()
+    conn._scratch_relations.add(
+        (
+            "memory",
+            "analytics",
+            'orders"archive__dbt_tmp0123456789abcdef0123456789abcdef',
+        )
+    )
+
+    conn.rollback()
+
+    mock_client.rollback_transaction.assert_called_once_with(transaction)
+    mock_client.execute.assert_called_once_with(
+        'drop table if exists "memory"."analytics".'
+        '"orders""archive__dbt_tmp0123456789abcdef0123456789abcdef"'
+    )
+    assert conn._scratch_relations == set()
+
+
+def test_commit_keeps_tracked_scratch_relations_for_post_commit_cleanup():
+    mock_client = MagicMock()
+    transaction = MagicMock()
+    mock_client.begin_transaction.return_value = transaction
+    conn = AltertableConnection(mock_client)
+    conn.begin()
+    conn._scratch_relations.add(
+        ("memory", "analytics", "orders__dbt_tmp0123456789abcdef0123456789abcdef")
+    )
+
+    conn.commit()
+
+    mock_client.commit_transaction.assert_called_once_with(transaction)
+    mock_client.execute.assert_not_called()
+    assert conn._scratch_relations == {
+        ("memory", "analytics", "orders__dbt_tmp0123456789abcdef0123456789abcdef")
+    }
+
+
 def test_data_type_code_to_name_maps_arrow_types() -> None:
     assert AltertableConnectionManager.data_type_code_to_name(pa.int64()) == "BIGINT"
     assert AltertableConnectionManager.data_type_code_to_name(pa.uint16()) == "INTEGER"

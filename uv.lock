@@ -252,6 +252,7 @@ dependencies = [
     { name = "dbt-adapters" },
     { name = "dbt-core" },
     { name = "pyarrow" },
+    { name = "sqlparse" },
 ]
 
 [package.optional-dependencies]
@@ -284,6 +285,7 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.10.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.11" },
+    { name = "sqlparse", specifier = ">=0.5" },
     { name = "testcontainers", marker = "extra == 'integration'", specifier = ">=4.0.0" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.32" },
 ]

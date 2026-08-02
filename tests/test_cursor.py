@@ -104,3 +104,131 @@ def test_get_result_from_cursor_returns_empty_agate_table_when_cursor_has_no_res
     result = AltertableConnectionManager.get_result_from_cursor(cursor, None)
 
     assert len(result.rows) == 0
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        """\
+create temporary table "unit_test__dbt_tmp20260802110054347458"
+as (
+    select * from (select 1 as item_id) as __dbt_sbq
+    where false
+    limit 0
+)
+/* {"app": "dbt"} */;
+""",
+        "create or replace view new_view as select 1 as id",
+        "/* dbt */ alter table old_table rename to new_table",
+        "/* dbt */ comment on table new_table is 'model description'",
+        "insert into new_table values (1)",
+        "with new_rows as (select 1 as id) insert into new_table select * from new_rows",
+    ],
+    ids=["create", "create_or_replace", "alter", "comment", "insert", "with_insert"],
+)
+def test_non_row_statements_use_flight_update_with_transaction(sql: str) -> None:
+    client = MagicMock()
+    transaction = MagicMock()
+    cursor = AltertableCursor(client, transaction)
+
+    cursor.execute(sql)
+
+    client.execute.assert_called_once_with(sql, transaction=transaction)
+    client.query.assert_not_called()
+    assert cursor.table is None
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "select 1 as value",
+        "with value as (select 1 as n) select n from value",
+        "show tables",
+        "describe new_table",
+        "pragma show_tables",
+        "explain select 1",
+    ],
+    ids=["select", "with", "show", "describe", "pragma", "explain"],
+)
+def test_row_returning_statements_stay_on_flight_query(sql: str) -> None:
+    client = MagicMock()
+    transaction = MagicMock()
+    reader = MagicMock()
+    reader.read_all.return_value = pa.table({"value": [1]})
+    client.query.return_value = reader
+    cursor = AltertableCursor(client, transaction)
+
+    cursor.execute(sql)
+
+    client.query.assert_called_once_with(sql, transaction=transaction)
+    client.execute.assert_not_called()
+    assert cursor.table is not None
+    assert cursor.table.to_pylist() == [{"value": 1}]
+
+
+def test_large_row_returning_statement_does_not_require_a_full_sql_parse() -> None:
+    sql = (
+        "with values_to_check as (select 1 where 1 in ("
+        + ",".join(["1"] * 10_001)
+        + ")) select * from values_to_check"
+    )
+    client = MagicMock()
+    reader = MagicMock()
+    reader.read_all.return_value = pa.table({"value": [1]})
+    client.query.return_value = reader
+    cursor = AltertableCursor(client)
+
+    cursor.execute(sql)
+
+    client.query.assert_called_once_with(sql, transaction=None)
+    client.execute.assert_not_called()
+
+
+def test_successful_create_tracks_only_generated_scoped_scratch_relation() -> None:
+    invocation_id = "0123456789abcdef0123456789abcdef"
+    sql = (
+        'create table "memory"."analytics".'
+        f'"orders""archive__dbt_tmp{invocation_id}" as (select 1 as id)'
+    )
+    client = MagicMock()
+    scratch_relations: set[tuple[str, ...]] = set()
+    cursor = AltertableCursor(client, scratch_relations=scratch_relations)
+
+    cursor.execute(sql)
+
+    assert scratch_relations == {("memory", "analytics", f'orders"archive__dbt_tmp{invocation_id}')}
+
+
+def test_regular_create_without_generated_suffix_is_not_tracked() -> None:
+    client = MagicMock()
+    scratch_relations: set[tuple[str, ...]] = set()
+    cursor = AltertableCursor(client, scratch_relations=scratch_relations)
+
+    cursor.execute('create table "memory"."analytics"."orders" as (select 1 as id)')
+
+    assert scratch_relations == set()
+
+
+def test_successful_drop_untracks_generated_scoped_scratch_relation() -> None:
+    invocation_id = "0123456789abcdef0123456789abcdef"
+    relation = ("memory", "analytics", f"orders__dbt_tmp{invocation_id}")
+    client = MagicMock()
+    scratch_relations = {relation}
+    cursor = AltertableCursor(client, scratch_relations=scratch_relations)
+
+    cursor.execute(f'drop table if exists "memory"."analytics"."orders__dbt_tmp{invocation_id}"')
+
+    assert scratch_relations == set()
+
+
+def test_transactional_drop_keeps_scratch_relation_tracked_until_transaction_ends() -> None:
+    invocation_id = "0123456789abcdef0123456789abcdef"
+    relation = ("memory", "analytics", f"orders__dbt_tmp{invocation_id}")
+    client = MagicMock()
+    transaction = MagicMock()
+    scratch_relations = {relation}
+    cursor = AltertableCursor(client, transaction, scratch_relations)
+
+    cursor.execute(f'drop table if exists "memory"."analytics"."orders__dbt_tmp{invocation_id}"')
+
+    assert scratch_relations == {relation}

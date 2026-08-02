@@ -2,6 +2,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import chain
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,7 @@ from dbt.adapters.contracts.connection import (
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql.connections import SQLConnectionManager
 from dbt_common.exceptions import DbtRuntimeError
+from sqlparse import lexer, tokens
 
 from dbt.adapters.altertable.credentials import AltertableCredentials
 
@@ -24,6 +26,108 @@ if TYPE_CHECKING:
     from altertable_flightsql.client import Transaction
 
 logger = AdapterLogger("Altertable")
+
+_UPDATE_STATEMENT_TYPES = {
+    "ALTER",
+    "ATTACH",
+    "COMMENT",
+    "COPY",
+    "CREATE",
+    "DELETE",
+    "DETACH",
+    "DROP",
+    "INSERT",
+    "MERGE",
+    "TRUNCATE",
+    "UPDATE",
+}
+
+ScratchRelation = tuple[str, ...]
+
+
+def _is_update_statement(sql: str) -> bool:
+    """Classify the first statement without grouping arbitrarily large dbt SQL."""
+    nesting = 0
+    with_clause = False
+    for token_type, value in lexer.tokenize(sql):
+        if token_type in tokens.Whitespace or token_type in tokens.Comment:
+            continue
+        keyword = value.upper().split()[0]
+        if not with_clause:
+            if keyword == "WITH":
+                with_clause = True
+                continue
+            return keyword in _UPDATE_STATEMENT_TYPES
+        if token_type in tokens.Punctuation:
+            if value == "(":
+                nesting += 1
+            elif value == ")":
+                nesting -= 1
+        elif nesting == 0 and (keyword == "SELECT" or keyword in _UPDATE_STATEMENT_TYPES):
+            return keyword in _UPDATE_STATEMENT_TYPES
+    return False
+
+
+def _scratch_relation_from_table_statement(
+    sql: str,
+    statement_type: str,
+) -> ScratchRelation | None:
+    """Return a generated, fully qualified dbt scratch relation from table DDL."""
+    significant_tokens = iter(
+        (token_type, value)
+        for token_type, value in lexer.tokenize(sql)
+        if token_type not in tokens.Whitespace and token_type not in tokens.Comment
+    )
+
+    _, value = next(significant_tokens, (None, ""))
+    if value.upper() != statement_type:
+        return None
+
+    _, value = next(significant_tokens, (None, ""))
+    if value.upper() != "TABLE":
+        return None
+
+    first_identifier_token = next(significant_tokens, (None, ""))
+    if statement_type == "DROP" and first_identifier_token[1].upper() in {"IF", "IF EXISTS"}:
+        if first_identifier_token[1].upper() == "IF":
+            _, value = next(significant_tokens, (None, ""))
+            if value.upper() != "EXISTS":
+                return None
+        first_identifier_token = next(significant_tokens, (None, ""))
+
+    relation_parts: list[str] = []
+    expect_identifier = True
+    for token_type, value in chain((first_identifier_token,), significant_tokens):
+        if expect_identifier and (
+            token_type in tokens.Literal.String.Symbol or token_type in tokens.Name
+        ):
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1].replace('""', '"')
+            relation_parts.append(value)
+            expect_identifier = False
+        elif not expect_identifier and token_type in tokens.Punctuation and value == ".":
+            expect_identifier = True
+        else:
+            break
+
+    if expect_identifier or not 1 <= len(relation_parts) <= 3:
+        return None
+
+    identifier = relation_parts[-1]
+    invocation_suffix = identifier[-32:]
+    if "__dbt_tmp" not in identifier or len(invocation_suffix) != 32:
+        return None
+    if any(character not in "0123456789abcdefABCDEF" for character in invocation_suffix):
+        return None
+    return tuple(relation_parts)
+
+
+def _quote_relation(relation: ScratchRelation) -> str:
+    quoted_parts = []
+    for part in relation:
+        escaped_part = part.replace('"', '""')
+        quoted_parts.append(f'"{escaped_part}"')
+    return ".".join(quoted_parts)
 
 
 def _normalize_flight_sql_scalar(value: Any) -> Any:
@@ -105,9 +209,11 @@ class AltertableCursor:
         self,
         client: altertable_flightsql.Client,
         transaction: "Transaction | None" = None,
+        scratch_relations: set[ScratchRelation] | None = None,
     ) -> None:
         self._client = client
         self._transaction = transaction
+        self._scratch_relations = scratch_relations
         self._table: pa.Table | None = None
         self._cursor_position: int = 0
 
@@ -170,6 +276,16 @@ class AltertableCursor:
             with self._client.prepare(sql, transaction=self._transaction) as stmt:
                 reader = stmt.query(parameters=params)
                 self._table = reader.read_all()
+        elif _is_update_statement(sql):
+            self._client.execute(sql, transaction=self._transaction)
+            if self._scratch_relations is not None:
+                created_relation = _scratch_relation_from_table_statement(sql, "CREATE")
+                if created_relation is not None:
+                    self._scratch_relations.add(created_relation)
+                else:
+                    dropped_relation = _scratch_relation_from_table_statement(sql, "DROP")
+                    if dropped_relation is not None and self._transaction is None:
+                        self._scratch_relations.discard(dropped_relation)
         else:
             reader = self._client.query(sql, transaction=self._transaction)
             self._table = reader.read_all()
@@ -255,6 +371,7 @@ class AltertableConnection:
     def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
         self._transaction: Transaction | None = None
+        self._scratch_relations: set[ScratchRelation] = set()
 
     def __enter__(self) -> "AltertableConnection":
         return self
@@ -269,13 +386,18 @@ class AltertableConnection:
 
     def cursor(self) -> AltertableCursor:
         """Create a new cursor for this connection."""
-        return AltertableCursor(self._client, self._transaction)
+        return AltertableCursor(self._client, self._transaction, self._scratch_relations)
 
     def begin(self) -> None:
         if self._transaction is None:
             self._transaction = self._client.begin_transaction()
 
     def close(self) -> None:
+        if self._transaction is not None or self._scratch_relations:
+            try:
+                self.rollback()
+            except Exception as e:
+                logger.warning(f"Failed to roll back Flight transaction during close: {e}")
         try:
             self._client.close()
         except Exception as e:
@@ -290,6 +412,15 @@ class AltertableConnection:
         if self._transaction is not None:
             self._client.rollback_transaction(self._transaction)
             self._transaction = None
+        failed_cleanups: set[ScratchRelation] = set()
+        for relation in sorted(self._scratch_relations):
+            try:
+                self._client.execute(f"drop table if exists {_quote_relation(relation)}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up dbt scratch relation {relation!r}: {e}")
+                failed_cleanups.add(relation)
+        self._scratch_relations.clear()
+        self._scratch_relations.update(failed_cleanups)
 
 
 class AltertableConnectionManager(SQLConnectionManager):

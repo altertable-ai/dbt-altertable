@@ -87,8 +87,7 @@
 
     {{ sql_header if sql_header is not none }}
 
-    create {% if temporary: -%}temporary{%- endif %} table
-      {{ relation.include(database=(not temporary), schema=(not temporary)) }}
+    create table {{ relation }}
   {% if contract_config.enforced and not temporary %}
     {#-- DuckDB doesnt support constraints on temp tables --#}
     {{ get_table_columns_and_constraints() }} ;
@@ -185,13 +184,9 @@ def materialize(df, con):
 {% endmacro %}
 
 {% macro altertable__make_temp_relation(base_relation, suffix) %}
-    {% set tmp_identifier = base_relation.identifier ~ suffix ~ py_current_timestring() %}
-    {% do return(base_relation.incorporate(
-                                  path={
-                                    "identifier": tmp_identifier,
-                                    "schema": none,
-                                    "database": none
-                                  })) -%}
+    {% set unique_suffix = invocation_id | replace('-', '') %}
+    {% set tmp_identifier = base_relation.identifier ~ suffix ~ unique_suffix %}
+    {% do return(base_relation.incorporate(path={"identifier": tmp_identifier})) -%}
 {% endmacro %}
 
 {% macro altertable__rename_relation(from_relation, to_relation) -%}
