@@ -319,6 +319,37 @@ class AltertableConnectionManager(SQLConnectionManager):
     def cancel(self, connection: Connection) -> None:
         logger.debug(f"Attempting to cancel connection: {connection.name}")
 
+    def add_query(
+        self,
+        sql: str,
+        auto_begin: bool = True,
+        bindings: Any | None = None,
+        abridge_sql_log: bool = False,
+        retryable_exceptions: tuple[type[Exception], ...] = tuple(),
+        retry_limit: int = 1,
+    ) -> tuple[Connection, Any]:
+        """
+        Run every statement inside the connection's transaction, ignoring ``auto_begin``.
+
+        Altertable serves each Flight SQL transaction from its own server-side DuckDB
+        connection, and DuckDB scopes temporary relations to the connection that created
+        them. dbt mixes both modes inside one materialization: ``run_query`` passes
+        ``auto_begin=False`` and creates the temporary relation, while ``statement``
+        defaults to ``auto_begin=True`` and reads that relation back. Honouring
+        ``auto_begin=False`` therefore splits a materialization across two server-side
+        connections, and the temporary relation is invisible to the half that needs it,
+        which surfaces as an empty column list for unit test expected output and as a
+        missing temporary table for incremental strategies.
+        """
+        return super().add_query(
+            sql,
+            auto_begin=True,
+            bindings=bindings,
+            abridge_sql_log=abridge_sql_log,
+            retryable_exceptions=retryable_exceptions,
+            retry_limit=retry_limit,
+        )
+
     def begin(self):
         connection = self.get_thread_connection()
         connection.handle.begin()

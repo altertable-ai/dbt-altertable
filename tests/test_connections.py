@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from dbt.adapters.contracts.connection import Connection, ConnectionState
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
@@ -82,6 +83,52 @@ def test_altertable_connection_close_does_not_interrupt_dbt_cleanup(mocker):
     conn.close()
 
     warning.assert_called_once_with("Failed to close Flight session: close session failed")
+
+
+@pytest.fixture
+def open_connection():
+    client = MagicMock()
+    client.begin_transaction.return_value = MagicMock(name="transaction")
+    return Connection(
+        type="altertable",
+        name="model.test.example",
+        credentials=MagicMock(),
+        state=ConnectionState.OPEN,
+        transaction_open=False,
+        handle=AltertableConnection(client),
+    )
+
+
+@pytest.fixture
+def connection_manager(mocker, open_connection):
+    manager = AltertableConnectionManager(profile=MagicMock(), mp_context=MagicMock())
+    mocker.patch.object(manager, "get_thread_connection", return_value=open_connection)
+    return manager
+
+
+def test_add_query_opens_a_transaction_even_when_dbt_disables_auto_begin(
+    connection_manager, open_connection
+):
+    client = open_connection.handle._client
+
+    connection_manager.add_query("create temporary table t as select 1 as id", auto_begin=False)
+
+    client.begin_transaction.assert_called_once_with()
+    assert open_connection.transaction_open is True
+    assert client.query.call_args.kwargs["transaction"] is client.begin_transaction.return_value
+
+
+def test_add_query_keeps_temp_relation_reads_on_the_creating_transaction(
+    connection_manager, open_connection
+):
+    client = open_connection.handle._client
+
+    connection_manager.add_query("create temporary table t as select 1 as id", auto_begin=False)
+    connection_manager.add_query("select * from duckdb_columns() where table_name = 't'")
+
+    client.begin_transaction.assert_called_once_with()
+    transactions = [call.kwargs["transaction"] for call in client.query.call_args_list]
+    assert transactions == [client.begin_transaction.return_value] * 2
 
 
 def test_data_type_code_to_name_maps_arrow_types() -> None:
