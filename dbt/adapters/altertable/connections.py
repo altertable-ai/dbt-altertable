@@ -25,6 +25,21 @@ if TYPE_CHECKING:
 
 logger = AdapterLogger("Altertable")
 
+# Messages the backend attaches to a session it no longer knows (`instantiate_session`
+# and `SESSION_EXPIRED_MESSAGE` in the API's session manager). The gRPC code is not a
+# usable signal: the same condition ships as Internal, FailedPrecondition or
+# Unauthenticated depending on the server path, and Internal is also what every ordinary
+# SQL error gets, so pyarrow's exception class cannot tell them apart either.
+_SESSION_EXPIRED_MESSAGES = (
+    "Session configuration not found or expired",
+    "Session expired. Open a new session.",
+)
+
+
+def _is_session_expired(error: BaseException) -> bool:
+    message = str(error)
+    return any(marker in message for marker in _SESSION_EXPIRED_MESSAGES)
+
 
 def _normalize_flight_sql_scalar(value: Any) -> Any:
     """Coerce dbt/agate values into types Arrow Flight can bind (e.g. Decimal → int)."""
@@ -314,7 +329,22 @@ class AltertableConnectionManager(SQLConnectionManager):
         except Exception as e:
             logger.error(f"Error executing SQL: {sql}")
             self.rollback_if_open()
+            if _is_session_expired(e):
+                self._fail_thread_connection()
             raise DbtRuntimeError(str(e)) from e
+
+    def _fail_thread_connection(self) -> None:
+        """Drop a Flight session the backend has forgotten.
+
+        A dbt connection keeps one Flight session for the whole run and nothing in
+        dbt's error path touches ``connection.state``, so without this every later
+        node replays the dead session id. A non-open state makes ``set_connection_name``
+        install a fresh ``LazyHandle(open)``, so the next node handshakes again.
+        """
+        connection = self.get_thread_connection()
+        logger.warning("Flight session expired; the next statement opens a new session")
+        self.close(connection)
+        connection.state = ConnectionState.FAIL
 
     def cancel(self, connection: Connection) -> None:
         logger.debug(f"Attempting to cancel connection: {connection.name}")

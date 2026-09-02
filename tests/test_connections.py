@@ -1,9 +1,14 @@
 from datetime import datetime
 from decimal import Decimal
+from multiprocessing import get_context
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pyarrow as pa
+import pyarrow.flight as flight
 import pytest
+from dbt.adapters.contracts.connection import ConnectionState
+from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
@@ -126,3 +131,71 @@ def test_catalog_alias_maps_to_database():
     )
 
     assert creds.database == "altertable_test"
+
+
+# What pyarrow raises when the backend no longer knows the session bound to the bearer
+# token (`api_sessions` row gone: worker replaced during a deploy, bulk delete, TTL).
+# The gRPC code differs per backend path (Internal, FailedPrecondition, Unauthenticated),
+# so the exception class differs too; only the message identifies the condition.
+_SESSION_EXPIRED_ERRORS = [
+    flight.FlightInternalError(
+        "Flight returned internal error, with message: Session configuration not found or "
+        "expired. gRPC client debug context: UNKNOWN:Error received from peer "
+        'ipv4:138.199.133.83:443 {grpc_message:"Session configuration not found or expired", '
+        "grpc_status:13}"
+    ),
+    flight.FlightUnavailableError(
+        "Flight returned unavailable error, with message: Session expired. Open a new session. "
+        "gRPC client debug context: UNKNOWN:Error received from peer ipv4:138.199.133.83:443 "
+        '{grpc_message:"Session expired. Open a new session.", grpc_status:9}'
+    ),
+]
+
+
+@pytest.fixture
+def manager(mock_client_cls, base_creds_kwargs):
+    profile = SimpleNamespace(credentials=AltertableCredentials(**base_creds_kwargs))
+    return AltertableConnectionManager(profile, get_context("spawn"))
+
+
+@pytest.mark.parametrize(
+    "session_expired", _SESSION_EXPIRED_ERRORS, ids=["internal", "unavailable"]
+)
+def test_session_expiry_fails_connection_and_next_node_opens_new_session(
+    manager, mock_client_cls, session_expired
+):
+    dead_client, fresh_client = MagicMock(), MagicMock()
+    mock_client_cls.side_effect = [dead_client, fresh_client]
+    dead_client.query.side_effect = session_expired
+
+    connection = manager.set_connection_name("model.first")
+    with pytest.raises(DbtRuntimeError, match="Session"):
+        manager.add_query("select 1")
+
+    # The failing node loses its statement, but the dead session must not survive it.
+    assert connection.state == ConnectionState.FAIL
+    dead_client.close.assert_called_once_with()
+
+    # dbt re-installs LazyHandle(open) on a non-open connection, so the next node
+    # handshakes again: a second Client, hence a second server-minted session id.
+    connection = manager.set_connection_name("model.second")
+    assert connection.handle._client is fresh_client
+    assert connection.state == ConnectionState.OPEN
+    assert mock_client_cls.call_count == 2
+
+
+def test_other_errors_keep_the_session(manager, mock_client_cls):
+    client = mock_client_cls.return_value
+    client.query.side_effect = flight.FlightInternalError(
+        "Flight returned internal error, with message: Catalog Error: Table with name nope "
+        "does not exist! gRPC client debug context: {grpc_status:13}"
+    )
+
+    connection = manager.set_connection_name("model.first")
+    with pytest.raises(DbtRuntimeError, match="Catalog Error"):
+        manager.add_query("select * from nope")
+
+    assert connection.state == ConnectionState.OPEN
+    client.close.assert_not_called()
+    assert manager.set_connection_name("model.second").handle._client is client
+    assert mock_client_cls.call_count == 1
