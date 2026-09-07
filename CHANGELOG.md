@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.6...dbt-altertable-v0.2.7) (2026-09-07)
+
+
+### Bug Fixes
+
+* **hooks:** ensure standalone COMMIT; now uses Flight’s transaction API ([#38](https://github.com/altertable-ai/dbt-altertable/issues/38)) ([07f123a](https://github.com/altertable-ai/dbt-altertable/commit/07f123a0c5550ea3ab21450c3d2162a9b22e6776))
+
 ## [0.2.6](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.5...dbt-altertable-v0.2.6) (2026-07-30)
 
 
