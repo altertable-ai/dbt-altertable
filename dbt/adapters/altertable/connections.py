@@ -331,6 +331,21 @@ class AltertableConnectionManager(SQLConnectionManager):
         connection.transaction_open = False
         return connection
 
+    def execute(
+        self,
+        sql: str,
+        auto_begin: bool = False,
+        fetch: bool = False,
+        limit: int | None = None,
+    ):
+        if sql.strip().rstrip(";").strip().casefold() == "commit":
+            from dbt_common.clients.agate_helper import empty_table
+
+            self.commit()
+            return AdapterResponse(_message="OK"), empty_table()
+
+        return super().execute(sql, auto_begin=auto_begin, fetch=fetch, limit=limit)
+
     def release(self) -> None:
         self.rollback_if_open()
 
