@@ -37,13 +37,9 @@ unit_tests:
 
 @pytest.mark.altertable_integration
 def test_dbt_unit_tests_run_against_the_server(dbt_project: DbtProject) -> None:
-    """
-    dbt *unit tests* (the ``unit_tests:`` YAML block, not pytest) build the model
-    through the ``unit`` materialization: ``run_query()`` stages the ``given``
-    rows in a temp relation, ``get_columns_in_relation`` reads it back, then the
-    model SQL runs against the fixture and is compared to ``expect``. No other
-    integration test reaches that materialization.
-    """
+    """dbt *unit tests* — the ``unit_tests:`` YAML block, not pytest — build the
+    model through the ``unit`` materialization, which no other integration test
+    reaches."""
     dbt_project.write_project_yml(models={"+materialized": "table"})
     dbt_project.write_model(SOURCE_MODEL, SOURCE_SQL)
     dbt_project.write_model(UNIT_MODEL, UNIT_MODEL_SQL)
