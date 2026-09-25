@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.7...dbt-altertable-v0.2.8) (2026-09-25)
+
+
+### Bug Fixes
+
+* **relation:** let dbt build --empty keep user aliases on ref() ([#41](https://github.com/altertable-ai/dbt-altertable/issues/41)) ([3cf30d0](https://github.com/altertable-ai/dbt-altertable/commit/3cf30d020e7fa93676fcce1258ad3d7adfbfb300))
+
 ## [0.2.7](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.6...dbt-altertable-v0.2.7) (2026-09-07)
 
 
