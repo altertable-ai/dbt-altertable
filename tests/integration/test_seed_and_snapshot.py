@@ -49,9 +49,21 @@ def test_seed_fast_false_and_check_strategy_snapshot(
         >= 1
     )
 
-    n = (
-        flight_client.query(f"select count(*) as c from {dbt_project.qualify(SNAP_NAME)}")
+    dbt_project.write_seed(SEED_NAME, "id,label\n1,alpha_v2\n2,beta\n3,gamma\n")
+    dbt_project.run("seed", "--select", SEED_NAME)
+    dbt_project.run("snapshot")
+
+    rows = (
+        flight_client.query(
+            f"select id, label, dbt_valid_to is null as is_current "
+            f"from {dbt_project.qualify(SNAP_NAME)} order by id, dbt_valid_from"
+        )
         .read_all()
-        .to_pylist()[0]["c"]
+        .to_pylist()
     )
-    assert int(n) >= 2
+    assert rows == [
+        {"id": 1, "label": "alpha", "is_current": False},
+        {"id": 1, "label": "alpha_v2", "is_current": True},
+        {"id": 2, "label": "beta", "is_current": True},
+        {"id": 3, "label": "gamma", "is_current": True},
+    ]
