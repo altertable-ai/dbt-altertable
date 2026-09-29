@@ -90,7 +90,7 @@ These fail with an explicit error instead of silently producing a different mode
 
 ## Persisting model and column descriptions
 
-When you enable [persist_docs](https://docs.getdbt.com/referen ce/resource-configs/persist_docs), dbt writes model and column `description` values to the warehouse using DuckDB’s `COMMENT ON TABLE` / `COMMENT ON COLUMN` syntax (one statement per column so Arrow Flight SQL accepts each round-trip).
+When you enable [persist_docs](https://docs.getdbt.com/reference/resource-configs/persist_docs), dbt writes model and column `description` values to the warehouse using DuckDB’s `COMMENT ON TABLE` / `COMMENT ON COLUMN` syntax (one statement per column so Arrow Flight SQL accepts each round-trip).
 
 Enable it in `dbt_project.yml` or on a model:
 
