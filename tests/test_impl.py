@@ -4,11 +4,14 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
+from dbt.context.providers import ParseDatabaseWrapper
 from dbt_common.contracts.constraints import ColumnLevelConstraint, ConstraintType
 from dbt_common.exceptions import CompilationError
 from packaging.version import Version
 
+from dbt.adapters.altertable.connections import AltertableConnection
 from dbt.adapters.altertable.impl import AltertableAdapter
+from dbt.adapters.altertable.relation import AltertableRelation
 
 STRATEGIES = ["append", "delete+insert", "merge", "microbatch"]
 
@@ -42,23 +45,99 @@ def test_valid_incremental_strategies_survives_dbt_appending_default() -> None:
     assert adapter.valid_incremental_strategies() == STRATEGIES
 
 
-def test_every_relation_takes_the_lakehouse_paths_and_is_never_motherduck() -> None:
+def test_adapter_is_never_motherduck_and_keeps_transactions_enabled() -> None:
     adapter = _adapter()
 
-    assert adapter.is_ducklake(None) is True
     assert adapter.is_motherduck() is False
     assert adapter.disable_transactions() is False
 
 
-@pytest.mark.parametrize(
-    ("server_version", "expected"),
-    [("v1.5.2", True), ("v1.5.3", False), ("v1.6.0", False)],
-)
-def test_table_workarounds_follow_server_version(server_version: str, expected: bool) -> None:
+def test_ducklake_catalog_names_are_loaded_once_per_connection() -> None:
     adapter = _adapter()
-    adapter.__dict__["server_duckdb_version"] = Version(server_version.lstrip("v"))
+    adapter.connections = MagicMock()
+    thread_connection = adapter.connections.get_thread_connection.return_value
+    first_connection = AltertableConnection(MagicMock())
+    thread_connection.handle = first_connection
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("customer's catalog",)]
+    adapter.connections.add_select_query.return_value = (None, cursor)
+    relation = AltertableRelation.create(database="Customer's Catalog", schema="main")
 
-    assert adapter.use_ducklake_table_workarounds(None) is expected
+    assert adapter.is_ducklake(relation) is True
+    assert adapter.is_ducklake(relation) is True
+    assert adapter.is_ducklake(AltertableRelation.create(database="other")) is False
+    assert adapter.connections.add_select_query.call_count == 1
+
+    thread_connection.handle = AltertableConnection(MagicMock())
+    cursor.fetchall.return_value = []
+
+    assert adapter.is_ducklake(relation) is False
+    assert adapter.is_ducklake(relation) is False
+    assert adapter.connections.add_select_query.call_count == 2
+
+    thread_connection.handle = first_connection
+    assert adapter.is_ducklake(relation) is True
+    assert adapter.connections.add_select_query.call_count == 2
+
+
+def test_failed_catalog_lookup_is_not_cached() -> None:
+    adapter = _adapter()
+    adapter.connections = MagicMock()
+    connection = AltertableConnection(MagicMock())
+    adapter.connections.get_thread_connection.return_value.handle = connection
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("reporting",)]
+    adapter.connections.add_select_query.side_effect = [
+        RuntimeError("metadata unavailable"),
+        (None, cursor),
+    ]
+    relation = AltertableRelation.create(database="reporting")
+
+    with pytest.raises(RuntimeError, match="metadata unavailable"):
+        adapter.is_ducklake(relation)
+
+    assert connection.ducklake_catalog_names is None
+    assert adapter.is_ducklake(relation) is True
+    assert adapter.connections.add_select_query.call_count == 2
+
+
+@pytest.mark.parametrize("relation", [None, AltertableRelation.create(identifier="temporary")])
+def test_is_ducklake_without_a_catalog_does_not_query(relation) -> None:
+    adapter = _adapter()
+    adapter.connections = MagicMock()
+
+    assert adapter.is_ducklake(relation) is False
+    assert adapter.connections.mock_calls == []
+
+
+def test_catalog_checks_do_not_query_during_parsing() -> None:
+    adapter = _adapter()
+    adapter.config = MagicMock()
+    adapter.connections = MagicMock()
+    wrapper = ParseDatabaseWrapper(adapter, MagicMock())
+    relation = AltertableRelation.create(database="reporting")
+
+    assert wrapper.is_ducklake(relation) is False
+    assert wrapper.use_ducklake_table_workarounds(relation) is False
+    assert adapter.connections.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    ("server_version", "catalog_type", "expected"),
+    [("1.5.2", "ducklake", True), ("1.5.3", "ducklake", False), ("1.5.2", "bigquery", False)],
+)
+def test_table_workarounds_follow_catalog_type_and_server_version(
+    server_version: str, catalog_type: str, expected: bool
+) -> None:
+    adapter = _adapter()
+    adapter.__dict__["server_duckdb_version"] = Version(server_version)
+    adapter.connections = MagicMock()
+    connection = AltertableConnection(MagicMock())
+    connection.ducklake_catalog_names = {"reporting"} if catalog_type == "ducklake" else set()
+    adapter.connections.get_thread_connection.return_value.handle = connection
+    relation = AltertableRelation.create(database="reporting")
+
+    assert adapter.use_ducklake_table_workarounds(relation) is expected
 
 
 def test_server_duckdb_version_reads_select_version() -> None:

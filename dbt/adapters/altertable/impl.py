@@ -65,13 +65,22 @@ class AltertableAdapter(SQLAdapter):
     def get_seed_file_path(self, model) -> str:
         return os.path.join(model["root_path"], model["original_file_path"])
 
-    @available
+    @available.parse(lambda relation: False)
     def is_ducklake(self, relation: AltertableRelation | None) -> bool:
-        return True
+        if relation is None or not relation.database:
+            return False
 
-    @available
+        connection = self.connections.get_thread_connection().handle
+        if connection.ducklake_catalog_names is None:
+            _, cursor = self.connections.add_select_query(
+                "select lower(database_name) from duckdb_databases() where type = 'ducklake'"
+            )
+            connection.ducklake_catalog_names = {row[0] for row in cursor.fetchall()}
+        return relation.database.lower() in connection.ducklake_catalog_names
+
+    @available.parse(lambda relation: False)
     def use_ducklake_table_workarounds(self, relation: AltertableRelation | None) -> bool:
-        return self.server_duckdb_version < ALTER_RENAME_FIX_VERSION
+        return self.is_ducklake(relation) and self.server_duckdb_version < ALTER_RENAME_FIX_VERSION
 
     @available
     def is_motherduck(self) -> bool:

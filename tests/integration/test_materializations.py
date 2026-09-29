@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from tests.integration._helpers import DbtProject, count_in_catalog
+from tests.integration._helpers import DbtProject, count_in_catalog, sql_string_literal
 
 BASE_MODEL = "integ_base"
 VIEW_NAME = "integ_vw"
@@ -50,6 +50,44 @@ DELETE_INSERT_NULL_PHASE_SQL = """\
 ) }}
 select 1 as id, cast(null as varchar) as phase
 """
+
+
+@pytest.mark.altertable_integration
+@pytest.mark.parametrize("materialized", ["table", "incremental"])
+def test_ducklake_layout_settings_are_ignored_on_other_catalogs(
+    dbt_project: DbtProject, flight_client: Any, materialized: str
+) -> None:
+    catalog = (
+        flight_client.query(
+            "select type from duckdb_databases() "
+            f"where database_name = {sql_string_literal(dbt_project.db)}"
+        )
+        .read_all()
+        .to_pylist()
+    )
+    if catalog[0]["type"] == "ducklake":
+        pytest.skip("Requires a non-DuckLake target catalog")
+
+    dbt_project.write_project_yml()
+    dbt_project.write_model(
+        BASE_MODEL,
+        "{{ config(materialized='" + materialized + "', "
+        "partitioned_by=['id'], sorted_by=['id']) }}\nselect 1 as id\n",
+    )
+
+    result = dbt_project.run("--debug", "run", "--select", BASE_MODEL)
+
+    assert "partitioned_by/partition_by is only supported for DuckLake" in result.stdout
+    assert "sorted_by/sort_by is only supported for DuckLake" in result.stdout
+    sql_log = (dbt_project.base / "logs" / "dbt.log").read_text().lower()
+    assert "set partitioned by" not in sql_log
+    assert "set sorted by" not in sql_log
+    rows = (
+        flight_client.query(f"select * from {dbt_project.qualify(BASE_MODEL)}")
+        .read_all()
+        .to_pylist()
+    )
+    assert rows == [{"id": 1}]
 
 
 @pytest.mark.altertable_integration

@@ -17,6 +17,10 @@
   {%- endcall -%}
 {% endmacro %}
 
+{% macro altertable__drop_relation(relation) -%}
+  {{ return(default__drop_relation(relation)) }}
+{%- endmacro %}
+
 {% macro altertable__drop_table(relation) -%}
   drop table if exists {{ relation.render() }}
 {%- endmacro %}
