@@ -169,17 +169,6 @@ def test_warn_once_logs_each_message_once(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.parametrize(
-    ("model", "expected"),
-    [
-        ({}, ""),
-        ({"batch": {"event_time_start": "2026-01-02 03:04:05+00:00"}}, "20260102_0304050000"),
-    ],
-)
-def test_batch_id_for_model_derives_suffix_from_batch_start(model: dict, expected: str) -> None:
-    assert _adapter().batch_id_for_model(model) == expected
-
-
-@pytest.mark.parametrize(
     "constraint_type",
     [
         ConstraintType.primary_key,

@@ -107,23 +107,8 @@ class AltertableAdapter(SQLAdapter):
 
     @available
     def batch_id_for_model(self, model: Any) -> str:
-        batch_ctx = getattr(model, "batch", None)
-        if batch_ctx is None and hasattr(model, "get"):
-            batch_ctx = model.get("batch")
-        if not batch_ctx:
-            return ""
-        event_time_start = getattr(batch_ctx, "event_time_start", None)
-        if event_time_start is None and hasattr(batch_ctx, "get"):
-            event_time_start = batch_ctx.get("event_time_start")
-        if not event_time_start:
-            return ""
-        return (
-            str(event_time_start)
-            .replace("-", "")
-            .replace(":", "")
-            .replace(" ", "_")
-            .replace("+", "")
-        )
+        # Required by dbt-duckdb; only MotherDuck uses the batch suffix.
+        return ""
 
     @cached_property
     def server_duckdb_version(self) -> Version:
