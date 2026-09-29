@@ -15,4 +15,5 @@ Plugin = AdapterPlugin(
     adapter=AltertableAdapter,
     credentials=AltertableCredentials,
     include_path=altertable.PACKAGE_PATH,
+    dependencies=["duckdb"],
 )

@@ -255,6 +255,7 @@ class AltertableConnection:
     def __init__(self, client: altertable_flightsql.Client) -> None:
         self._client = client
         self._transaction: Transaction | None = None
+        self.ducklake_catalog_names: set[str] | None = None
 
     def __enter__(self) -> "AltertableConnection":
         return self

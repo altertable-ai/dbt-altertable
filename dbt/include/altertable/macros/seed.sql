@@ -3,10 +3,6 @@
   {{ return('?') }}
 {% endmacro %}
 
-{% macro altertable__get_batch_size() %}
-  {{ return(10000) }}
-{% endmacro %}
-
 {% macro altertable__load_csv_rows(model, agate_table) %}
     {% if config.get('fast', false) %}
         {% set seed_file_path = adapter.get_seed_file_path(model) %}

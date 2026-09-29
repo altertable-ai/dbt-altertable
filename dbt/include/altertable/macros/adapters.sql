@@ -1,21 +1,6 @@
 {% macro altertable__create_schema(relation) -%}
   {%- call statement('create_schema') -%}
-    {% set sql %}
-        select type from duckdb_databases()
-        where lower(database_name)='{{ relation.database | lower }}'
-        and type='sqlite'
-    {% endset %}
-    {% set results = run_query(sql) %}
-    {% if results|length == 0 %}
-        create schema if not exists {{ relation.without_identifier() }}
-    {% else %}
-        {% if relation.schema!='main' %}
-            {{ exceptions.raise_compiler_error(
-                "Schema must be 'main' when writing to sqlite "
-                ~ "instead got " ~ relation.schema
-            )}}
-        {% endif %}
-    {% endif %}
+    create schema if not exists {{ relation.without_identifier() }}
   {%- endcall -%}
 {% endmacro %}
 
@@ -31,6 +16,10 @@
     drop schema if exists {{ relation.without_identifier() }}
   {%- endcall -%}
 {% endmacro %}
+
+{% macro altertable__drop_relation(relation) -%}
+  {{ return(default__drop_relation(relation)) }}
+{%- endmacro %}
 
 {% macro altertable__drop_table(relation) -%}
   drop table if exists {{ relation.render() }}
@@ -65,78 +54,65 @@
   {{ return(run_query(sql)) }}
 {% endmacro %}
 
-{% macro get_column_names() %}
-  {# loop through user_provided_columns to get column names #}
-    {%- set user_provided_columns = model['columns'] -%}
-    (
-    {% for i in user_provided_columns %}
-      {% set col = user_provided_columns[i] %}
-      {{ col['name'] }} {{ "," if not loop.last }}
-    {% endfor %}
-  )
-{% endmacro %}
+{#
+  Flight SQL accepts a single statement per round-trip, so when a table needs more
+  than a CREATE TABLE AS (enforced contract, partitioning or sort order),
+  the preliminary statements run here and only the final INSERT is returned for the
+  materialization's main statement.
+#}
+{% macro altertable__create_table_as(temporary, relation, compiled_code, language='sql', partitioned_by=none, sorted_by=none) -%}
+  {%- if language != 'sql' -%}
+    {% do exceptions.raise_compiler_error(
+      "Python models are not supported on Altertable; got language '" ~ language ~ "'"
+    ) %}
+  {%- endif -%}
 
+  {%- set contract_config = config.get('contract') -%}
+  {%- set enforce_contract = contract_config.enforced and not temporary -%}
+  {%- if contract_config.enforced -%}
+    {{ get_assert_columns_equivalent(compiled_code) }}
+  {%- endif -%}
+  {%- set sql_header = config.get('sql_header', none) -%}
+  {%- set target = relation.include(database=(not temporary), schema=(not temporary)) -%}
 
-{% macro altertable__create_table_as(temporary, relation, compiled_code, language='sql') -%}
-  {%- if language == 'sql' -%}
-    {% set contract_config = config.get('contract') %}
-    {% if contract_config.enforced %}
-      {{ get_assert_columns_equivalent(compiled_code) }}
-    {% endif %}
-    {%- set sql_header = config.get('sql_header', none) -%}
-
+  {%- if not enforce_contract and not partitioned_by and not sorted_by -%}
     {{ sql_header if sql_header is not none }}
-
-    create {% if temporary: -%}temporary{%- endif %} table
-      {{ relation.include(database=(not temporary), schema=(not temporary)) }}
-  {% if contract_config.enforced and not temporary %}
-    {#-- DuckDB doesnt support constraints on temp tables --#}
-    {{ get_table_columns_and_constraints() }} ;
-    insert into {{ relation }} {{ get_column_names() }} (
-      {{ get_select_subquery(compiled_code) }}
-    );
-  {% else %}
-    as (
+    create {% if temporary: -%}temporary{%- endif %} table {{ target }} as (
       {{ compiled_code }}
     );
-  {% endif %}
-  {%- elif language == 'python' -%}
-    {{ py_write_table(temporary=temporary, relation=relation, compiled_code=compiled_code) }}
   {%- else -%}
-      {% do exceptions.raise_compiler_error("altertable__create_table_as macro didn't get supported language, it got %s" % language) %}
+    {% call statement('create_empty_table', auto_begin=true) -%}
+      {{ sql_header if sql_header is not none }}
+      {% if enforce_contract -%}
+        create table {{ target }} {{ get_table_columns_and_constraints() }}
+      {%- else -%}
+        create {% if temporary: -%}temporary{%- endif %} table {{ target }} as (
+          select * from (
+            {{ compiled_code }}
+          ) as model_subq limit 0
+        )
+      {%- endif %}
+    {%- endcall %}
+    {% if partitioned_by %}
+      {% call statement('set_partitioned_by', auto_begin=true) -%}
+        {{ duckdb__alter_table_set_partitioned_by(relation, partitioned_by) }}
+      {%- endcall %}
+    {% endif %}
+    {% if sorted_by %}
+      {% call statement('set_sorted_by', auto_begin=true) -%}
+        {{ duckdb__alter_table_set_sorted_by(relation, sorted_by) }}
+      {%- endcall %}
+    {% endif %}
+    {% if enforce_contract -%}
+      insert into {{ target }} {{ get_column_names() }} (
+        {{ get_select_subquery(compiled_code) }}
+      );
+    {%- else -%}
+      insert into {{ target }} select * from (
+        {{ compiled_code }}
+      ) as model_subq;
+    {%- endif %}
   {%- endif -%}
-{% endmacro %}
-
-{% macro py_write_table(temporary, relation, compiled_code) -%}
-{{ compiled_code }}
-
-def materialize(df, con):
-    try:
-        import pyarrow
-        pyarrow_available = True
-    except ImportError:
-        pyarrow_available = False
-    finally:
-        if pyarrow_available and isinstance(df, pyarrow.Table):
-            # https://github.com/duckdb/duckdb/issues/6584
-            import pyarrow.dataset
-    tmp_name = '__dbt_python_model_df_' + '{{ relation.identifier }}'
-    con.register(tmp_name, df)
-    con.execute('create table {{ relation }} as select * from ' + tmp_name)
-    con.unregister(tmp_name)
-{% endmacro %}
-
-{% macro altertable__create_view_as(relation, sql) -%}
-  {% set contract_config = config.get('contract') %}
-  {% if contract_config.enforced %}
-    {{ get_assert_columns_equivalent(sql) }}
-  {%- endif %}
-  {%- set sql_header = config.get('sql_header', none) -%}
-
-  {{ sql_header if sql_header is not none }}
-  create view {{ relation }} as (
-    {{ sql }}
-  );
 {% endmacro %}
 
 {% macro altertable__get_columns_in_relation(relation) -%}
@@ -194,26 +170,6 @@ def materialize(df, con):
                                   })) -%}
 {% endmacro %}
 
-{% macro altertable__rename_relation(from_relation, to_relation) -%}
-  {% set target_name = adapter.quote_as_configured(to_relation.identifier, 'identifier') %}
-  {% call statement('rename_relation') -%}
-    alter {{ to_relation.type }} {{ from_relation }} rename to {{ target_name }}
-  {%- endcall %}
-{% endmacro %}
-
-{% macro altertable__current_timestamp() -%}
-  now()
-{%- endmacro %}
-
-{% macro altertable__snapshot_string_as_time(timestamp) -%}
-    {%- set result = "'" ~ timestamp ~ "'::timestamp" -%}
-    {{ return(result) }}
-{%- endmacro %}
-
-{% macro altertable__snapshot_get_time() -%}
-  {{ current_timestamp() }}::timestamp
-{%- endmacro %}
-
 {#
   dbt's default__get_delete_insert_merge_sql returns DELETE and INSERT as one
   semicolon-separated string, which Flight SQL rejects because it accepts a single
@@ -255,89 +211,3 @@ def materialize(df, con):
     from {{ source }}
   )
 {% endmacro %}
-
-{% macro altertable__get_incremental_default_sql(arg_dict) %}
-  {% do return(get_incremental_delete_insert_sql(arg_dict)) %}
-{% endmacro %}
-
-{% macro location_exists(location) -%}
-  {% do return(adapter.location_exists(location)) %}
-{% endmacro %}
-
-{% macro write_to_file(relation, location, options) -%}
-  {% call statement('write_to_file') -%}
-    copy {{ relation }} to '{{ location }}' ({{ options }})
-  {%- endcall %}
-{% endmacro %}
-
-{% macro store_relation(plugin, relation, location, format, config) -%}
-  {%- set column_list = adapter.get_columns_in_relation(relation) -%}
-  {% do adapter.store_relation(plugin, relation, column_list, location, format, config) %}
-{% endmacro %}
-
-{% macro render_write_options(config) -%}
-  {% set options = config.get('options', {}) %}
-  {% if options is not mapping %}
-    {% do exceptions.raise_compiler_error("The options argument must be a dictionary") %}
-  {% endif %}
-
-  {% for k in options %}
-    {% set _ = options.update({k: render(options[k])}) %}
-  {% endfor %}
-
-  {# legacy top-level write options #}
-  {% if config.get('format') %}
-    {% set _ = options.update({'format': render(config.get('format'))}) %}
-  {% endif %}
-  {% if config.get('delimiter') %}
-    {% set _ = options.update({'delimiter': render(config.get('delimiter'))}) %}
-  {% endif %}
-
-  {% do return(options) %}
-{%- endmacro %}
-
-{% macro altertable__apply_grants(relation, grant_config, should_revoke=True) %}
-    {#-- If grant_config is {} or None, this is a no-op --#}
-    {% if grant_config %}
-      {{ adapter.warn_once('Grants for relations are not supported by DuckDB') }}
-    {% endif %}
-{% endmacro %}
-
-{% macro altertable__get_create_index_sql(relation, index_dict) -%}
-  {%- set index_config = adapter.parse_index(index_dict) -%}
-  {%- set comma_separated_columns = ", ".join(index_config.columns) -%}
-  {%- set index_name = index_config.render(relation) -%}
-
-  create {% if index_config.unique -%}
-    unique
-  {%- endif %} index
-  "{{ index_name }}"
-  on {{ relation }}
-  ({{ comma_separated_columns }});
-{%- endmacro %}
-
-{% macro drop_indexes_on_relation(relation) -%}
-  {% call statement('get_indexes_on_relation', fetch_result=True) %}
-    SELECT index_name
-    FROM duckdb_indexes()
-    WHERE schema_name = '{{ relation.schema }}'
-      AND table_name = '{{ relation.identifier }}'
-  {% endcall %}
-
-  {% set results = load_result('get_indexes_on_relation').table %}
-  {% for row in results %}
-    {% set index_name = row[0] %}
-    {% call statement('drop_index_' + loop.index|string, auto_begin=false) %}
-      DROP INDEX "{{ relation.schema }}"."{{ index_name }}"
-    {% endcall %}
-  {% endfor %}
-
-  {#-- Verify indexes were dropped --#}
-  {% call statement('verify_indexes_dropped', fetch_result=True) %}
-    SELECT COUNT(*) as remaining_indexes
-    FROM duckdb_indexes()
-    WHERE schema_name = '{{ relation.schema }}'
-      AND table_name = '{{ relation.identifier }}'
-  {% endcall %}
-  {% set verify_results = load_result('verify_indexes_dropped').table %}
-{%- endmacro %}

@@ -38,28 +38,59 @@ my_project:
       password: your_password
       database: your_database
       schema: your_schema
-      host: flight.altertable.ai  # optional, this is the default
-      port: 443                    # optional, this is the default
-      tls: true                    # optional, this is the default
+      host: flight.altertable.ai # optional, this is the default
+      port: 443 # optional, this is the default
+      tls: true # optional, this is the default
 ```
 
-| Field | Required | Default | Description |
-| --- | --- | --- | --- |
-| `username` | yes | — | Altertable username |
-| `password` | yes | — | Altertable password |
-| `database` | yes | — | Target catalog name |
-| `schema` | yes | — | Target schema name |
-| `host` | no | `flight.altertable.ai` | Flight SQL endpoint host |
-| `port` | no | `443` | Flight SQL endpoint port |
-| `tls` | no | `true` | Use TLS for the Flight SQL connection |
+| Field      | Required | Default                | Description                           |
+| ---------- | -------- | ---------------------- | ------------------------------------- |
+| `username` | yes      | —                      | Altertable username                   |
+| `password` | yes      | —                      | Altertable password                   |
+| `database` | yes      | —                      | Target catalog name                   |
+| `schema`   | yes      | —                      | Target schema name                    |
+| `host`     | no       | `flight.altertable.ai` | Flight SQL endpoint host              |
+| `port`     | no       | `443`                  | Flight SQL endpoint port              |
+| `tls`      | no       | `true`                 | Use TLS for the Flight SQL connection |
 
 ## SQL dialect
 
 dbt models should use **DuckDB-compatible SQL**. Altertable executes queries via DuckDB, so all DuckDB SQL features and functions are available — see the [DuckDB SQL reference](https://duckdb.org/docs/sql/introduction).
 
+## Compatibility with dbt-duckdb
+
+The adapter builds on [dbt-duckdb](https://github.com/duckdb/dbt-duckdb): `duckdb__` macros from your project and packages (dbt_utils, dbt_date, ...) are used automatically, so projects written for DuckDB run unchanged.
+
+## Incremental strategies
+
+| Strategy                  | Notes                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `append`                  | Inserts new rows.                                                                                                               |
+| `delete+insert` (default) | Deletes rows matching `unique_key`, then inserts.                                                                               |
+| `merge`                   | `MERGE` on `unique_key` with dbt-duckdb's `merge_*` configs; at most one UPDATE or DELETE action, no `merge_returning_columns`. |
+| `microbatch`              | Replaces each `event_time` batch; batches run one at a time.                                                                    |
+
+## Partitioning and sort order
+
+Table and incremental models accept `partitioned_by` and `sorted_by`, applied when the table is created or fully refreshed:
+
+```sql
+{{ config(materialized='table', partitioned_by=['year(event_at)', 'country'], sorted_by=['event_at']) }}
+```
+
+## Unsupported on Altertable
+
+These fail with an explicit error instead of silently producing a different model:
+
+- `indexes` config
+- Contract constraints other than `not_null` (`primary_key`, `unique`, `foreign_key`, `check`)
+- `grants` config
+- `external` and `table_function` materializations
+- Python models
+
 ## Persisting model and column descriptions
 
-When you enable [persist_docs](https://docs.getdbt.com/referen  ce/resource-configs/persist_docs), dbt writes model and column `description` values to the warehouse using DuckDB’s `COMMENT ON TABLE` / `COMMENT ON COLUMN` syntax (one statement per column so Arrow Flight SQL accepts each round-trip).
+When you enable [persist_docs](https://docs.getdbt.com/reference/resource-configs/persist_docs), dbt writes model and column `description` values to the warehouse using DuckDB’s `COMMENT ON TABLE` / `COMMENT ON COLUMN` syntax (one statement per column so Arrow Flight SQL accepts each round-trip).
 
 Enable it in `dbt_project.yml` or on a model:
 
