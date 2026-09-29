@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 
 from dbt.adapters.base import available
 from dbt.adapters.base.impl import ConstraintSupport
+from dbt.adapters.duckdb.constants import DUCKLAKE_ALTER_RENAME_FIX_VERSION
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql import SQLAdapter
 from dbt_common.contracts.constraints import (
@@ -19,8 +20,6 @@ from dbt.adapters.altertable.connections import AltertableConnectionManager
 from dbt.adapters.altertable.relation import AltertableRelation
 
 logger = AdapterLogger("Altertable")
-
-ALTER_RENAME_FIX_VERSION = Version("1.5.3")
 
 
 class AltertableAdapter(SQLAdapter):
@@ -80,7 +79,9 @@ class AltertableAdapter(SQLAdapter):
 
     @available.parse(lambda relation: False)
     def use_ducklake_table_workarounds(self, relation: AltertableRelation | None) -> bool:
-        return self.is_ducklake(relation) and self.server_duckdb_version < ALTER_RENAME_FIX_VERSION
+        return self.is_ducklake(relation) and self.server_duckdb_version < Version(
+            DUCKLAKE_ALTER_RENAME_FIX_VERSION
+        )
 
     @available
     def is_motherduck(self) -> bool:
