@@ -87,7 +87,9 @@
         create table {{ target }} {{ get_table_columns_and_constraints() }}
       {%- else -%}
         create {% if temporary: -%}temporary{%- endif %} table {{ target }} as (
-          select * from ({{ compiled_code }}) as model_subq limit 0
+          select * from (
+            {{ compiled_code }}
+          ) as model_subq limit 0
         )
       {%- endif %}
     {%- endcall %}
@@ -106,7 +108,9 @@
         {{ get_select_subquery(compiled_code) }}
       );
     {%- else -%}
-      insert into {{ target }} select * from ({{ compiled_code }}) as model_subq;
+      insert into {{ target }} select * from (
+        {{ compiled_code }}
+      ) as model_subq;
     {%- endif %}
   {%- endif -%}
 {% endmacro %}
