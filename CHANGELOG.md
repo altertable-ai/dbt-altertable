@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.8...dbt-altertable-v0.2.9) (2026-09-29)
+
+
+### Features
+
+* **duckdb:** declare DuckDB as the parent adapter ([#43](https://github.com/altertable-ai/dbt-altertable/issues/43)) ([db8871d](https://github.com/altertable-ai/dbt-altertable/commit/db8871d3db322866fde17049c0b692100439e346))
+
 ## [0.2.8](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.7...dbt-altertable-v0.2.8) (2026-09-25)
 
 
