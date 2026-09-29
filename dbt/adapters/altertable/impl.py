@@ -55,8 +55,7 @@ class AltertableAdapter(SQLAdapter):
             and cls.CONSTRAINT_SUPPORT[parsed_constraint.type] == ConstraintSupport.NOT_SUPPORTED
         ):
             raise CompilationError(
-                f"{parsed_constraint.type.value} constraints are not supported on Altertable. "
-                "Only not_null constraints can be enforced."
+                f"{parsed_constraint.type.value} constraints are not supported on Altertable."
             )
         return super().process_parsed_constraint(parsed_constraint, render_func)
 
