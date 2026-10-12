@@ -43,3 +43,5 @@
   {%- endcall -%}
   {{ return(load_result('catalog').table) }}
 {%- endmacro %}
+
+{#- TODO: integrate HTTP GET /tables once the backend exposes it (altertable-ai/backend fl/expose-table-data-changes) -#}

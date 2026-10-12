@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from dbt.adapters.capability import Capability
 from dbt.context.providers import ParseDatabaseWrapper
 from dbt_common.contracts.constraints import ColumnLevelConstraint, ConstraintType
 from dbt_common.exceptions import CompilationError
@@ -199,3 +202,45 @@ def test_not_null_and_custom_constraints_render() -> None:
         )
         == "custom"
     )
+
+
+def test_metadata_freshness_is_disabled_until_backend_http_integration() -> None:
+    assert not AltertableAdapter.supports(Capability.TableLastModifiedMetadata)
+    assert not AltertableAdapter.supports(Capability.TableLastModifiedMetadataBatch)
+
+
+def test_batch_freshness_keeps_same_named_sources_of_different_databases_apart() -> None:
+    adapter = _adapter()
+    snapshotted_at = datetime(2026, 1, 3, tzinfo=timezone.utc)
+    last_modified_by_database = {
+        "lake_prod": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "lake_dev": datetime(2026, 1, 2, tzinfo=timezone.utc),
+    }
+    prod_orders, dev_orders = (
+        AltertableRelation.create(database=database, schema="main", identifier="orders")
+        for database in last_modified_by_database
+    )
+
+    def execute_macro(_name: str, kwargs: dict[str, Any], **_: Any) -> MagicMock:
+        database = kwargs["information_schema"].database
+        result = MagicMock()
+        result.table = [
+            {
+                "schema": "main",
+                "identifier": "orders",
+                "last_modified": last_modified_by_database[database],
+                "snapshotted_at": snapshotted_at,
+            }
+        ]
+        return result
+
+    adapter.execute_macro = MagicMock(side_effect=execute_macro)  # type: ignore[method-assign]
+
+    _, freshness_by_source = adapter.calculate_freshness_from_metadata_batch(
+        [prod_orders, dev_orders]
+    )
+
+    assert (
+        freshness_by_source[prod_orders]["max_loaded_at"] == last_modified_by_database["lake_prod"]
+    )
+    assert freshness_by_source[dev_orders]["max_loaded_at"] == last_modified_by_database["lake_dev"]
