@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.11](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.10...dbt-altertable-v0.2.11) (2026-10-15)
+
+
+### Bug Fixes
+
+* **connections:** log SQL exception details ([#51](https://github.com/altertable-ai/dbt-altertable/issues/51)) ([d775743](https://github.com/altertable-ai/dbt-altertable/commit/d775743e39f4806f311a371d2a1d5c3aa250fb6b))
+
 ## [0.2.10](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.9...dbt-altertable-v0.2.10) (2026-10-15)
 
 
