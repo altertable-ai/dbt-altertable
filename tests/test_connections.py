@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from altertable_flightsql import ComputeSize
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
@@ -46,8 +47,27 @@ def test_connect_client_keeps_flight_session_unscoped(mock_client_cls, base_cred
         host=base_creds_kwargs["host"],
         port=base_creds_kwargs["port"],
         tls=base_creds_kwargs["tls"],
+        compute_size=None,
     )
     mock_client_cls.return_value.query.assert_not_called()
+
+
+def test_connect_client_passes_compute_size(mock_client_cls, base_creds_kwargs):
+    creds = AltertableCredentials.from_dict(
+        {"type": "altertable", **base_creds_kwargs, "compute_size": "XL"}
+    )
+
+    AltertableConnectionManager._connect_client(creds)
+
+    assert mock_client_cls.call_args.kwargs["compute_size"] is ComputeSize.XL
+
+
+def test_compute_size_accepts_multi_x_sizes(base_creds_kwargs):
+    creds = AltertableCredentials.from_dict(
+        {"type": "altertable", **base_creds_kwargs, "compute_size": "2XL"}
+    )
+
+    assert creds.compute_size is ComputeSize.XXL
 
 
 def test_connect_client_creates_client_for_each_dbt_connection(mock_client_cls, base_creds_kwargs):

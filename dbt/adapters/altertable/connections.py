@@ -377,6 +377,7 @@ class AltertableConnectionManager(SQLConnectionManager):
             host=credentials.host,
             port=credentials.port,
             tls=credentials.tls,
+            compute_size=credentials.compute_size,
         )
         return AltertableConnection(client)
 
