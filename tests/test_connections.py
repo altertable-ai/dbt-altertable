@@ -76,7 +76,7 @@ def test_open_does_not_retry_invalid_compute_size(mock_client_cls, base_creds_kw
         credentials=creds,
     )
 
-    with pytest.raises(FailedToConnectError, match="Invalid compute_size 'HUGE'"):
+    with pytest.raises(FailedToConnectError, match=r"Failed to set session options.*compute_size='HUGE'"):
         AltertableConnectionManager.open(connection)
 
     assert mock_client_cls.call_count == 1

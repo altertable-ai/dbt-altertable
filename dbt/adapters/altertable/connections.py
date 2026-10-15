@@ -387,9 +387,12 @@ class AltertableConnectionManager(SQLConnectionManager):
                 compute_size=credentials.compute_size or None,
             )
         except ValueError as e:
-            raise _SessionOptionError(
-                f"Invalid compute_size {credentials.compute_size!r}: {e}"
-            ) from e
+            # The client raises ValueError when the server rejects a session option.
+            # compute_size is the only option set here, but keep the original message
+            # in case the error has another cause.
+            if not credentials.compute_size:
+                raise
+            raise _SessionOptionError(f"{e} (compute_size={credentials.compute_size!r})") from e
         return AltertableConnection(client)
 
     @classmethod
