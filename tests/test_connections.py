@@ -125,7 +125,7 @@ def test_exception_handler_logs_exception_and_rolls_back(mocker):
     ):
         raise ValueError("query failed")
 
-    log_exception.assert_called_once_with("Error executing SQL: select broken")
+    log_exception.assert_called_once_with("Error executing SQL (ValueError): query failed")
     manager.rollback_if_open.assert_called_once_with()
     assert isinstance(exc_info.value.__cause__, ValueError)
 
