@@ -310,7 +310,7 @@ class AltertableConnectionManager(SQLConnectionManager):
             yield
 
         except Exception as e:
-            logger.error(f"Error executing SQL: {sql}")
+            logger.exception(f"Error executing SQL ({type(e).__name__}): {e}")
             self.rollback_if_open()
             raise DbtRuntimeError(str(e)) from e
 

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 from altertable_flightsql import ComputeSize
+from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
@@ -112,6 +113,21 @@ def test_altertable_connection_close_does_not_interrupt_dbt_cleanup(mocker):
     conn.close()
 
     warning.assert_called_once_with("Failed to close Flight session: close session failed")
+
+
+def test_exception_handler_logs_exception_and_rolls_back(mocker):
+    manager = MagicMock(spec=AltertableConnectionManager)
+    log_exception = mocker.patch("dbt.adapters.altertable.connections.logger.exception")
+
+    with (
+        pytest.raises(DbtRuntimeError, match="query failed") as exc_info,
+        AltertableConnectionManager.exception_handler(manager, "select broken"),
+    ):
+        raise ValueError("query failed")
+
+    log_exception.assert_called_once_with("Error executing SQL (ValueError): query failed")
+    manager.rollback_if_open.assert_called_once_with()
+    assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 def test_data_type_code_to_name_maps_arrow_types() -> None:
