@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from dbt_common.events import get_event_manager
 
 from dbt.adapters.altertable.connections import (
     AltertableConnectionManager,
@@ -19,6 +20,30 @@ def cursor_with_result(sample_table: pa.Table) -> AltertableCursor:
     cursor = AltertableCursor(MagicMock())
     cursor._table = sample_table
     return cursor
+
+
+@pytest.mark.parametrize("bindings", [None, ["sensitive-value"], {"token": "sensitive-value"}])
+def test_execute_does_not_emit_sql_or_bindings(bindings, monkeypatch, capsys):
+    sql = "select ? as sensitive_query" if bindings is not None else "select 1 as sensitive_query"
+    table = pa.table({"result": [1]})
+    client = MagicMock()
+    client.query.return_value.read_all.return_value = table
+    statement = client.prepare.return_value.__enter__.return_value
+    statement.query.return_value.read_all.return_value = table
+    cursor = AltertableCursor(client)
+    messages: list[str] = []
+    monkeypatch.setattr(
+        get_event_manager(), "callbacks", [lambda event: messages.append(event.info.msg)]
+    )
+
+    cursor.execute(sql, bindings)
+
+    assert cursor.fetchall() == [(1,)]
+    assert sql not in "\n".join(messages)
+    assert "sensitive-value" not in "\n".join(messages)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def test_fresh_cursor_exposes_pep249_sentinels_before_any_execute():

@@ -30,7 +30,6 @@ class AltertableCredentials(Credentials):
     def _connection_keys(self) -> tuple[str, ...]:
         return (
             "username",
-            "password",
             "database",
             "schema",
             "host",
