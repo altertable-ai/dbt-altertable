@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 logger = AdapterLogger("Altertable")
 
 
+class _SessionOptionError(Exception):
+    """The server rejected a session option (e.g. an invalid ``compute_size``)."""
+
+
 def _normalize_flight_sql_scalar(value: Any) -> Any:
     """Coerce dbt/agate values into types Arrow Flight can bind (e.g. Decimal → int)."""
     if isinstance(value, Decimal):
@@ -364,20 +368,28 @@ class AltertableConnectionManager(SQLConnectionManager):
             logger=logger,
             retry_limit=1,
             retry_timeout=lambda attempt: attempt**2,
-            retryable_exceptions=[Exception],
+            # Transport/Flight errors may be transient; a rejected session option
+            # (``_SessionOptionError``) is a configuration error and fails immediately.
+            retryable_exceptions=[OSError, pa.ArrowException],
         )
 
     @classmethod
     def _connect_client(cls, credentials: AltertableCredentials) -> "AltertableConnection":
-        client = altertable_flightsql.Client(
-            username=credentials.username,
-            password=credentials.password,
-            catalog=None,
-            schema=None,
-            host=credentials.host,
-            port=credentials.port,
-            tls=credentials.tls,
-        )
+        try:
+            client = altertable_flightsql.Client(
+                username=credentials.username,
+                password=credentials.password,
+                catalog=None,
+                schema=None,
+                host=credentials.host,
+                port=credentials.port,
+                tls=credentials.tls,
+                compute_size=credentials.compute_size or None,
+            )
+        except ValueError as e:
+            raise _SessionOptionError(
+                f"Invalid compute_size {credentials.compute_size!r}: {e}"
+            ) from e
         return AltertableConnection(client)
 
     @classmethod

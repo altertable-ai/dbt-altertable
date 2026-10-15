@@ -14,6 +14,7 @@ class AltertableCredentials(Credentials):
     host: str = "flight.altertable.ai"
     port: Annotated[int, Minimum(0), Maximum(65535)] = 443
     tls: bool = True
+    compute_size: str | None = None
 
     _ALIASES = {"catalog": "database"}
 
@@ -34,4 +35,5 @@ class AltertableCredentials(Credentials):
             "host",
             "port",
             "tls",
+            "compute_size",
         )

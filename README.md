@@ -41,17 +41,19 @@ my_project:
       host: flight.altertable.ai # optional, this is the default
       port: 443 # optional, this is the default
       tls: true # optional, this is the default
+      compute_size: XL # optional, server default if omitted
 ```
 
-| Field      | Required | Default                | Description                           |
-| ---------- | -------- | ---------------------- | ------------------------------------- |
-| `username` | yes      | —                      | Altertable username                   |
-| `password` | yes      | —                      | Altertable password                   |
-| `database` | yes      | —                      | Target catalog name                   |
-| `schema`   | yes      | —                      | Target schema name                    |
-| `host`     | no       | `flight.altertable.ai` | Flight SQL endpoint host              |
-| `port`     | no       | `443`                  | Flight SQL endpoint port              |
-| `tls`      | no       | `true`                 | Use TLS for the Flight SQL connection |
+| Field          | Required | Default                | Description                                                                             |
+| -------------- | -------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| `username`     | yes      | —                      | Altertable username                                                                     |
+| `password`     | yes      | —                      | Altertable password                                                                     |
+| `database`     | yes      | —                      | Target catalog name                                                                     |
+| `schema`       | yes      | —                      | Target schema name                                                                      |
+| `host`         | no       | `flight.altertable.ai` | Flight SQL endpoint host                                                                |
+| `port`         | no       | `443`                  | Flight SQL endpoint port                                                                |
+| `tls`          | no       | `true`                 | Use TLS for the Flight SQL connection                                                   |
+| `compute_size` | no       | server default         | Compute size for all queries of the run: `XS`, `S`, `M`, `L`, `XL`, `2XL`, `3XL`, `4XL` |
 
 ## SQL dialect
 

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
+from dbt.adapters.contracts.connection import Connection, ConnectionState
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
@@ -46,8 +47,39 @@ def test_connect_client_keeps_flight_session_unscoped(mock_client_cls, base_cred
         host=base_creds_kwargs["host"],
         port=base_creds_kwargs["port"],
         tls=base_creds_kwargs["tls"],
+        compute_size=None,
     )
     mock_client_cls.return_value.query.assert_not_called()
+
+
+def test_connect_client_passes_compute_size(mock_client_cls, base_creds_kwargs):
+    creds = AltertableCredentials.from_dict(
+        {"type": "altertable", **base_creds_kwargs, "compute_size": "XL"}
+    )
+
+    AltertableConnectionManager._connect_client(creds)
+
+    assert mock_client_cls.call_args.kwargs["compute_size"] == "XL"
+
+
+def test_open_does_not_retry_invalid_compute_size(mock_client_cls, base_creds_kwargs):
+    from dbt.adapters.exceptions import FailedToConnectError
+
+    mock_client_cls.side_effect = ValueError("Failed to set session options")
+    creds = AltertableCredentials(**base_creds_kwargs, compute_size="HUGE")
+    connection = Connection(
+        type="altertable",
+        name="test",
+        state=ConnectionState.INIT,
+        transaction_open=False,
+        handle=None,
+        credentials=creds,
+    )
+
+    with pytest.raises(FailedToConnectError, match="Invalid compute_size 'HUGE'"):
+        AltertableConnectionManager.open(connection)
+
+    assert mock_client_cls.call_count == 1
 
 
 def test_connect_client_creates_client_for_each_dbt_connection(mock_client_cls, base_creds_kwargs):
