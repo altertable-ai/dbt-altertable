@@ -176,8 +176,10 @@ class AltertableCursor:
     def _slice_to_rows(self, offset: int, length: int) -> list[tuple[Any, ...]]:
         if self._table is None or length <= 0:
             return []
-        chunk = self._table.slice(offset, length).to_pylist()
-        return [tuple(row.values()) for row in chunk]
+        chunk = self._table.slice(offset, length)
+        if chunk.num_columns == 0:
+            return [()] * chunk.num_rows
+        return list(zip(*(column.to_pylist() for column in chunk.itercolumns()), strict=True))
 
     def fetchone(self) -> tuple[Any, ...] | None:
         """
@@ -385,6 +387,7 @@ class AltertableConnectionManager(SQLConnectionManager):
     @classmethod
     def get_result_from_cursor(cls, cursor: AltertableCursor, limit: int | None) -> "agate.Table":
         """Build an ``agate.Table`` from ``cursor.table``, applying ``limit`` if given."""
+        from agate.utils import deduplicate
         from dbt_common.clients.agate_helper import empty_table, table_from_data_flat
 
         table = cursor.table
@@ -392,5 +395,5 @@ class AltertableConnectionManager(SQLConnectionManager):
             return empty_table()
         if limit is not None and table.num_rows > limit:
             table = table.slice(0, limit)
-        column_names = list(table.schema.names)
-        return table_from_data_flat(table.to_pylist(), column_names)
+        column_names = deduplicate(table.schema.names, column_names=True)
+        return table_from_data_flat(table.rename_columns(column_names).to_pylist(), column_names)
