@@ -33,6 +33,16 @@ def mock_client_cls(mocker):
     return cls_mock
 
 
+def test_connection_diagnostics_exclude_password(base_creds_kwargs):
+    creds = AltertableCredentials(**base_creds_kwargs)
+
+    diagnostics = dict(creds.connection_info())
+
+    assert "password" not in diagnostics
+    assert creds.password not in repr(diagnostics)
+    assert diagnostics["host"] == creds.host
+
+
 def test_connect_client_keeps_flight_session_unscoped(mock_client_cls, base_creds_kwargs):
     creds = AltertableCredentials(**base_creds_kwargs)
 
