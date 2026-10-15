@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.10](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.9...dbt-altertable-v0.2.10) (2026-10-15)
+
+
+### Features
+
+* support configurable compute_size in profile ([#46](https://github.com/altertable-ai/dbt-altertable/issues/46)) ([57eda0a](https://github.com/altertable-ai/dbt-altertable/commit/57eda0a65a59f3c12f6dc8f05786c84422c01b5d))
+
+
+### Bug Fixes
+
+* **connections:** omit sensitive diagnostics ([#48](https://github.com/altertable-ai/dbt-altertable/issues/48)) ([e7383a8](https://github.com/altertable-ai/dbt-altertable/commit/e7383a8f65ab799f2655c70ece5f500a213a5136))
+
+
+### Code Refactoring
+
+* **seeds:** reuse dbt default seed loader ([#47](https://github.com/altertable-ai/dbt-altertable/issues/47)) ([cd3eed8](https://github.com/altertable-ai/dbt-altertable/commit/cd3eed8e5de095d2fce6049a0b24a921cb893b36))
+
 ## [0.2.9](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.8...dbt-altertable-v0.2.9) (2026-09-29)
 
 
