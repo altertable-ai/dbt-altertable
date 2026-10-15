@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Annotated
 
+from altertable_flightsql import ComputeSize
 from dbt.adapters.contracts.connection import Credentials
 from mashumaro.jsonschema.annotations import Maximum, Minimum
 
@@ -14,7 +15,7 @@ class AltertableCredentials(Credentials):
     host: str = "flight.altertable.ai"
     port: Annotated[int, Minimum(0), Maximum(65535)] = 443
     tls: bool = True
-    compute_size: str | None = None
+    compute_size: ComputeSize | None = None
 
     _ALIASES = {"catalog": "database"}
 
