@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.13](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.12...dbt-altertable-v0.2.13) (2026-10-16)
+
+
+### Bug Fixes
+
+* **deps:** pick up altertable-flightsql 0.4.1 keepalive ([#56](https://github.com/altertable-ai/dbt-altertable/issues/56)) ([b6c3385](https://github.com/altertable-ai/dbt-altertable/commit/b6c338524701a367767ce91b087ade179e8e23b6))
+
 ## [0.2.12](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.11...dbt-altertable-v0.2.12) (2026-10-16)
 
 
