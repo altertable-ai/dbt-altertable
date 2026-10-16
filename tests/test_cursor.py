@@ -194,3 +194,63 @@ def test_get_result_from_cursor_preserves_duplicate_column_values_and_limit(
 
     assert tuple(result.column_names) == ("value", "value_2", "value_2_2")
     assert [tuple(row) for row in result.rows] == expected_rows
+
+
+SESSION_EXPIRED = pa.ArrowInvalid(
+    "gRPC returned precondition failed error, with message: Session expired. Open a new session."
+)
+
+
+@pytest.mark.parametrize("bindings", [None, {"id": 1}])
+def test_execute_outside_transaction_reopens_expired_session_and_retries(bindings):
+    table = pa.table({"result": [1]})
+    expired_client = MagicMock()
+    expired_client.query.side_effect = SESSION_EXPIRED
+    expired_client.prepare.side_effect = SESSION_EXPIRED
+    new_client = MagicMock()
+    new_client.query.return_value.read_all.return_value = table
+    statement = new_client.prepare.return_value.__enter__.return_value
+    statement.query.return_value.read_all.return_value = table
+    reconnect = MagicMock(return_value=new_client)
+    cursor = AltertableCursor(expired_client, reconnect=reconnect)
+
+    cursor.execute("select 1", bindings)
+
+    reconnect.assert_called_once_with()
+    assert cursor.fetchall() == [(1,)]
+
+
+def test_execute_inside_transaction_does_not_retry_expired_session():
+    client = MagicMock()
+    client.query.side_effect = SESSION_EXPIRED
+    reconnect = MagicMock()
+    cursor = AltertableCursor(client, transaction=MagicMock(), reconnect=reconnect)
+
+    with pytest.raises(pa.ArrowInvalid, match="Session expired"):
+        cursor.execute("select 1")
+
+    reconnect.assert_not_called()
+
+
+def test_execute_does_not_retry_other_errors():
+    client = MagicMock()
+    client.query.side_effect = pa.ArrowInvalid("Binder Error: column not found")
+    reconnect = MagicMock()
+    cursor = AltertableCursor(client, reconnect=reconnect)
+
+    with pytest.raises(pa.ArrowInvalid, match="Binder Error"):
+        cursor.execute("select missing")
+
+    reconnect.assert_not_called()
+
+
+def test_execute_retries_expired_session_only_once():
+    expired_client = MagicMock()
+    expired_client.query.side_effect = SESSION_EXPIRED
+    reconnect = MagicMock(return_value=expired_client)
+    cursor = AltertableCursor(expired_client, reconnect=reconnect)
+
+    with pytest.raises(pa.ArrowInvalid, match="Session expired"):
+        cursor.execute("select 1")
+
+    reconnect.assert_called_once_with()
