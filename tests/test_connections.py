@@ -95,6 +95,129 @@ def test_connect_client_creates_client_for_each_dbt_connection(mock_client_cls, 
     assert second_connection._client is second_client
 
 
+def test_connect_client_factory_opens_a_new_session_with_same_kwargs(
+    mock_client_cls, base_creds_kwargs
+):
+    creds = AltertableCredentials(**base_creds_kwargs)
+    first_client = MagicMock()
+    second_client = MagicMock()
+    mock_client_cls.side_effect = [first_client, second_client]
+
+    connection = AltertableConnectionManager._connect_client(creds)
+    reopened = connection._connect()
+
+    assert reopened is second_client
+    assert mock_client_cls.call_args_list[0] == mock_client_cls.call_args_list[1]
+
+
+SESSION_EXPIRED = pa.ArrowInvalid(
+    "gRPC returned precondition failed error, with message: Session expired. Open a new session."
+)
+
+
+def test_begin_reopens_expired_session_and_retries():
+    expired_client = MagicMock()
+    expired_client.begin_transaction.side_effect = SESSION_EXPIRED
+    new_client = MagicMock()
+    conn = AltertableConnection(expired_client, connect=MagicMock(return_value=new_client))
+
+    conn.begin()
+
+    expired_client.close.assert_called_once_with()
+    assert conn._client is new_client
+    assert conn._transaction is new_client.begin_transaction.return_value
+
+
+def test_begin_reopens_session_even_if_closing_the_expired_one_fails():
+    expired_client = MagicMock()
+    expired_client.begin_transaction.side_effect = SESSION_EXPIRED
+    expired_client.close.side_effect = SESSION_EXPIRED
+    new_client = MagicMock()
+    conn = AltertableConnection(expired_client, connect=MagicMock(return_value=new_client))
+
+    conn.begin()
+
+    assert conn._transaction is new_client.begin_transaction.return_value
+
+
+def test_begin_does_not_reconnect_on_other_errors():
+    client = MagicMock()
+    client.begin_transaction.side_effect = pa.ArrowInvalid("something else")
+    connect = MagicMock()
+    conn = AltertableConnection(client, connect=connect)
+
+    with pytest.raises(pa.ArrowInvalid, match="something else"):
+        conn.begin()
+
+    connect.assert_not_called()
+
+
+def test_begin_retries_expired_session_only_once():
+    expired_client = MagicMock()
+    expired_client.begin_transaction.side_effect = SESSION_EXPIRED
+    still_expired_client = MagicMock()
+    still_expired_client.begin_transaction.side_effect = SESSION_EXPIRED
+    connect = MagicMock(return_value=still_expired_client)
+    conn = AltertableConnection(expired_client, connect=connect)
+
+    with pytest.raises(pa.ArrowInvalid, match="Session expired"):
+        conn.begin()
+
+    connect.assert_called_once_with()
+    assert conn._transaction is None
+
+
+def test_begin_without_connect_factory_raises_expired_session():
+    client = MagicMock()
+    client.begin_transaction.side_effect = SESSION_EXPIRED
+    conn = AltertableConnection(client)
+
+    with pytest.raises(pa.ArrowInvalid, match="Session expired"):
+        conn.begin()
+
+
+def test_rollback_on_expired_session_clears_transaction_and_reconnects():
+    expired_client = MagicMock()
+    expired_client.rollback_transaction.side_effect = SESSION_EXPIRED
+    new_client = MagicMock()
+    conn = AltertableConnection(expired_client, connect=MagicMock(return_value=new_client))
+    conn._transaction = MagicMock()
+
+    conn.rollback()
+
+    assert conn._transaction is None
+    assert conn._client is new_client
+
+
+def test_rollback_failure_still_clears_transaction():
+    client = MagicMock()
+    client.rollback_transaction.side_effect = pa.ArrowInvalid("rollback failed")
+    connect = MagicMock()
+    conn = AltertableConnection(client, connect=connect)
+    conn._transaction = MagicMock()
+
+    with pytest.raises(pa.ArrowInvalid, match="rollback failed"):
+        conn.rollback()
+
+    assert conn._transaction is None
+    connect.assert_not_called()
+
+    conn.begin()
+    assert conn._transaction is client.begin_transaction.return_value
+
+
+def test_cursor_reconnect_updates_connection_client():
+    expired_client = MagicMock()
+    expired_client.query.side_effect = SESSION_EXPIRED
+    new_client = MagicMock()
+    new_client.query.return_value.read_all.return_value = pa.table({"x": [1]})
+    conn = AltertableConnection(expired_client, connect=MagicMock(return_value=new_client))
+
+    conn.cursor().execute("select 1")
+
+    assert conn._client is new_client
+
+
 def test_altertable_connection_close_closes_underlying_client():
     mock_client = MagicMock()
     conn = AltertableConnection(mock_client)

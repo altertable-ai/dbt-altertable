@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -24,6 +24,13 @@ if TYPE_CHECKING:
     from altertable_flightsql.client import Transaction
 
 logger = AdapterLogger("Altertable")
+
+SESSION_EXPIRED_MESSAGE = "Session expired"
+
+
+def _is_session_expired(exc: BaseException) -> bool:
+    """True when the server no longer knows the Flight session (e.g. it expired while idle)."""
+    return isinstance(exc, pa.ArrowException) and SESSION_EXPIRED_MESSAGE in str(exc)
 
 
 def _normalize_flight_sql_scalar(value: Any) -> Any:
@@ -105,9 +112,11 @@ class AltertableCursor:
         self,
         client: altertable_flightsql.Client,
         transaction: "Transaction | None" = None,
+        reconnect: Callable[[], altertable_flightsql.Client] | None = None,
     ) -> None:
         self._client = client
         self._transaction = transaction
+        self._reconnect = reconnect
         self._table: pa.Table | None = None
         self._cursor_position: int = 0
 
@@ -162,16 +171,30 @@ class AltertableCursor:
         self._table = None
         self._cursor_position = 0
 
+        try:
+            self._table = self._execute_to_table(sql, bindings)
+        except Exception as e:
+            # An expired session is rejected before anything runs, so retrying is safe unless the
+            # statement belonged to a transaction that died with the session.
+            if (
+                self._transaction is not None
+                or self._reconnect is None
+                or not _is_session_expired(e)
+            ):
+                raise
+            self._client = self._reconnect()
+            self._table = self._execute_to_table(sql, bindings)
+
+        return self
+
+    def _execute_to_table(
+        self, sql: str, bindings: Sequence[Any] | Mapping[str, Any] | None
+    ) -> pa.Table:
         if bindings is not None:
             params = _normalize_flight_sql_parameters(bindings)
             with self._client.prepare(sql, transaction=self._transaction) as stmt:
-                reader = stmt.query(parameters=params)
-                self._table = reader.read_all()
-        else:
-            reader = self._client.query(sql, transaction=self._transaction)
-            self._table = reader.read_all()
-
-        return self
+                return stmt.query(parameters=params).read_all()
+        return self._client.query(sql, transaction=self._transaction).read_all()
 
     def _slice_to_rows(self, offset: int, length: int) -> list[tuple[Any, ...]]:
         if self._table is None or length <= 0:
@@ -251,8 +274,13 @@ class AltertableConnection:
     that returns AltertableCursor instances.
     """
 
-    def __init__(self, client: altertable_flightsql.Client) -> None:
+    def __init__(
+        self,
+        client: altertable_flightsql.Client,
+        connect: Callable[[], altertable_flightsql.Client] | None = None,
+    ) -> None:
         self._client = client
+        self._connect = connect
         self._transaction: Transaction | None = None
         self.ducklake_catalog_names: set[str] | None = None
 
@@ -269,10 +297,32 @@ class AltertableConnection:
 
     def cursor(self) -> AltertableCursor:
         """Create a new cursor for this connection."""
-        return AltertableCursor(self._client, self._transaction)
+        reconnect = self._reconnect if self._connect is not None else None
+        return AltertableCursor(self._client, self._transaction, reconnect=reconnect)
+
+    def _can_reconnect(self, exc: Exception) -> bool:
+        return self._connect is not None and _is_session_expired(exc)
+
+    def _reconnect(self) -> altertable_flightsql.Client:
+        """Replace the expired Flight session with a new client and return it."""
+        assert self._connect is not None
+        logger.warning("Flight session expired; opening a new session")
+        try:
+            self._client.close()
+        except Exception as e:
+            logger.debug(f"Failed to close expired Flight session: {e}")
+        self._client = self._connect()
+        return self._client
 
     def begin(self) -> None:
-        if self._transaction is None:
+        if self._transaction is not None:
+            return
+        try:
+            self._transaction = self._client.begin_transaction()
+        except Exception as e:
+            if not self._can_reconnect(e):
+                raise
+            self._reconnect()
             self._transaction = self._client.begin_transaction()
 
     def close(self) -> None:
@@ -287,9 +337,17 @@ class AltertableConnection:
             self._transaction = None
 
     def rollback(self) -> None:
-        if self._transaction is not None:
-            self._client.rollback_transaction(self._transaction)
-            self._transaction = None
+        if self._transaction is None:
+            return
+        transaction = self._transaction
+        self._transaction = None
+        try:
+            self._client.rollback_transaction(transaction)
+        except Exception as e:
+            # Nothing to roll back: the transaction died with the session.
+            if not self._can_reconnect(e):
+                raise
+            self._reconnect()
 
 
 class AltertableConnectionManager(SQLConnectionManager):
@@ -368,17 +426,19 @@ class AltertableConnectionManager(SQLConnectionManager):
 
     @classmethod
     def _connect_client(cls, credentials: AltertableCredentials) -> "AltertableConnection":
-        client = altertable_flightsql.Client(
-            username=credentials.username,
-            password=credentials.password,
-            catalog=None,
-            schema=None,
-            host=credentials.host,
-            port=credentials.port,
-            tls=credentials.tls,
-            compute_size=credentials.compute_size,
-        )
-        return AltertableConnection(client)
+        def new_client() -> altertable_flightsql.Client:
+            return altertable_flightsql.Client(
+                username=credentials.username,
+                password=credentials.password,
+                catalog=None,
+                schema=None,
+                host=credentials.host,
+                port=credentials.port,
+                tls=credentials.tls,
+                compute_size=credentials.compute_size,
+            )
+
+        return AltertableConnection(new_client(), connect=new_client)
 
     @classmethod
     def get_response(cls, cursor: AltertableCursor) -> AdapterResponse:
