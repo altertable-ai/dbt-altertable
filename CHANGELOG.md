@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.12](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.11...dbt-altertable-v0.2.12) (2026-10-16)
+
+
+### Bug Fixes
+
+* **connections:** preserve duplicate result column values ([#50](https://github.com/altertable-ai/dbt-altertable/issues/50)) ([2b81611](https://github.com/altertable-ai/dbt-altertable/commit/2b8161120a2c2c7bf140308ad4aabb3bf489c95a))
+* **connections:** reopen expired Flight sessions ([#54](https://github.com/altertable-ai/dbt-altertable/issues/54)) ([d284b84](https://github.com/altertable-ai/dbt-altertable/commit/d284b84c30be94ca7c9a38c4223dc361f8c41b33))
+
 ## [0.2.11](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.10...dbt-altertable-v0.2.11) (2026-10-15)
 
 
