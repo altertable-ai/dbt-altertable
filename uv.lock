@@ -26,15 +26,15 @@ wheels = [
 
 [[package]]
 name = "altertable-flightsql"
-version = "0.4.0"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/11/3bd2d5a945a97b2de9e32ac3ce2b68aa5ee20c695acf51bee884c57c304b/altertable_flightsql-0.4.0.tar.gz", hash = "sha256:95331064e290c2ba6ab6823f097370bb5ce8981dfde3c2050b1d7a5df004f93b", size = 56382, upload-time = "2026-10-15T13:46:44.495Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/d9/6af7bdc202ab5b65e2933e75cb264fa834a380a09e10e42498ac601f3ddd/altertable_flightsql-0.4.1.tar.gz", hash = "sha256:077652f60417318a9a20fa9fd783f589c58dd5c0983fbb29f47557293d7e7bc9", size = 58315, upload-time = "2026-10-16T08:38:50.926Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/ef/55a613630c0a4caf72ba66c0d0ad276abb6a3498d89ad8d95200ba1eccec/altertable_flightsql-0.4.0-py3-none-any.whl", hash = "sha256:c8cd0d72402dc0e7c52c3e0215adce2313752ba188646db2436ce0ea830ab051", size = 29763, upload-time = "2026-10-15T13:46:43.105Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/bc/65abba8a2151587c3e3ad8e651439cbcc12ef3591809df3976ea8727e207/altertable_flightsql-0.4.1-py3-none-any.whl", hash = "sha256:ebc4fd35706569ee1ebd17f638e6dd6c9045e97c0af63c06ac7c2fc065223143", size = 29928, upload-time = "2026-10-16T08:38:49.737Z" },
 ]
 
 [[package]]
@@ -274,7 +274,7 @@ metricflow = [
 
 [package.metadata]
 requires-dist = [
-    { name = "altertable-flightsql", specifier = ">=0.4.0" },
+    { name = "altertable-flightsql", specifier = ">=0.4.1" },
     { name = "conventional-pre-commit", marker = "extra == 'dev'", specifier = ">=4.4" },
     { name = "dbt-adapters", specifier = ">=1.5,<2.0" },
     { name = "dbt-core", specifier = ">=1.8,<2.0" },
