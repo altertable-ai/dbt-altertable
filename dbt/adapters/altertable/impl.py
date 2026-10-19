@@ -1,10 +1,17 @@
 import os
 import threading
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
-from dbt.adapters.base import available
-from dbt.adapters.base.impl import ConstraintSupport
+from dbt.adapters.base import BaseRelation, available
+from dbt.adapters.base.impl import (
+    GET_RELATION_LAST_MODIFIED_MACRO_NAME,
+    ConstraintSupport,
+    FreshnessResponse,
+)
+from dbt.adapters.capability import Capability, CapabilityDict, CapabilitySupport, Support
+from dbt.adapters.contracts.connection import AdapterResponse
+from dbt.adapters.contracts.macros import MacroResolverProtocol
 from dbt.adapters.duckdb.constants import DUCKLAKE_ALTER_RENAME_FIX_VERSION
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql import SQLAdapter
@@ -34,8 +41,45 @@ class AltertableAdapter(SQLAdapter):
         ConstraintType.foreign_key: ConstraintSupport.NOT_SUPPORTED,
     }
 
+    _capabilities = CapabilityDict(
+        {
+            Capability.TableLastModifiedMetadata: CapabilitySupport(support=Support.Full),
+            Capability.TableLastModifiedMetadataBatch: CapabilitySupport(support=Support.Full),
+        }
+    )
+
     _warned_messages: ClassVar[set[str]] = set()
     _warned_lock: ClassVar[threading.Lock] = threading.Lock()
+
+    def calculate_freshness_from_metadata_batch(
+        self,
+        sources: list[BaseRelation],
+        macro_resolver: MacroResolverProtocol | None = None,
+    ) -> tuple[list[AdapterResponse | None], dict[BaseRelation, FreshnessResponse]]:
+        # dbt-adapters keys batch results by (schema, identifier): dbt-labs/dbt-adapters#2107.
+        freshness_responses: dict[BaseRelation, FreshnessResponse] = {}
+        adapter_responses: list[AdapterResponse | None] = []
+        for information_schema, relations in self._get_catalog_relations_by_info_schema(
+            sources
+        ).items():
+            source_by_name = {
+                (str(relation.schema).lower(), str(relation.identifier).lower()): relation
+                for relation in relations
+            }
+            result = cast(
+                Any,
+                self.execute_macro(
+                    GET_RELATION_LAST_MODIFIED_MACRO_NAME,
+                    kwargs={"information_schema": information_schema, "relations": relations},
+                    macro_resolver=macro_resolver,
+                    needs_conn=True,
+                ),
+            )
+            adapter_responses.append(result.response)
+            for row in result.table:
+                name, freshness_response = self._parse_freshness_row(row, result.table)
+                freshness_responses[source_by_name[name]] = freshness_response
+        return adapter_responses, freshness_responses
 
     def valid_incremental_strategies(self) -> list[str]:
         return ["append", "delete+insert", "merge", "microbatch"]
