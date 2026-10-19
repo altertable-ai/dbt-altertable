@@ -43,11 +43,8 @@ class AltertableAdapter(SQLAdapter):
 
     _capabilities = CapabilityDict(
         {
-            # Enable after wiring the backend HTTP GET /tables endpoint.
-            Capability.TableLastModifiedMetadata: CapabilitySupport(support=Support.NotImplemented),
-            Capability.TableLastModifiedMetadataBatch: CapabilitySupport(
-                support=Support.NotImplemented
-            ),
+            Capability.TableLastModifiedMetadata: CapabilitySupport(support=Support.Full),
+            Capability.TableLastModifiedMetadataBatch: CapabilitySupport(support=Support.Full),
         }
     )
 
@@ -59,8 +56,7 @@ class AltertableAdapter(SQLAdapter):
         sources: list[BaseRelation],
         macro_resolver: MacroResolverProtocol | None = None,
     ) -> tuple[list[AdapterResponse | None], dict[BaseRelation, FreshnessResponse]]:
-        # dbt-adapters keys results by (schema, identifier) only, so DuckLake's default `main`
-        # schema in two catalogs collides (dbt-labs/dbt-adapters#2107). Key per information schema.
+        # dbt-adapters keys batch results by (schema, identifier): dbt-labs/dbt-adapters#2107.
         freshness_responses: dict[BaseRelation, FreshnessResponse] = {}
         adapter_responses: list[AdapterResponse | None] = []
         for information_schema, relations in self._get_catalog_relations_by_info_schema(

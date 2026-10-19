@@ -6,7 +6,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from dbt.adapters.capability import Capability
 from dbt.context.providers import ParseDatabaseWrapper
 from dbt_common.contracts.constraints import ColumnLevelConstraint, ConstraintType
 from dbt_common.exceptions import CompilationError
@@ -202,11 +201,6 @@ def test_not_null_and_custom_constraints_render() -> None:
         )
         == "custom"
     )
-
-
-def test_metadata_freshness_is_disabled_until_backend_http_integration() -> None:
-    assert not AltertableAdapter.supports(Capability.TableLastModifiedMetadata)
-    assert not AltertableAdapter.supports(Capability.TableLastModifiedMetadataBatch)
 
 
 def test_batch_freshness_keeps_same_named_sources_of_different_databases_apart() -> None:
