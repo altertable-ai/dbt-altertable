@@ -51,7 +51,7 @@
         table_name as identifier,
         coalesce(last_data_change_at, now()) as last_modified,
         now() as snapshotted_at
-    from "altertable_table_freshness__{{ information_schema.database }}"()
+    from memory.main."altertable_table_freshness__{{ information_schema.database }}"()
     where (
         {%- for relation in relations -%}
           (upper(schema_name) = upper('{{ relation.schema }}') and upper(table_name) = upper('{{ relation.identifier }}')){%- if not loop.last %} or {% endif -%}
