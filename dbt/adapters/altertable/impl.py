@@ -29,13 +29,15 @@ logger = AdapterLogger("Altertable")
 
 
 def to_arrow(df: Any) -> pa.Table:
-    """Convert a model result to plain Arrow columns: no pandas index, views or dictionaries.
+    """Convert a model result to plain Arrow columns that ingest can split by size.
 
-    Results are split into message-sized batches by size, but pyarrow cannot size view
-    columns, which Polars emits by default, and a dictionary slice counts its whole dictionary.
+    pyarrow cannot size Polars view columns, and a dictionary slice counts its whole
+    dictionary, so neither may reach ingest. The pandas index is dropped, as in dbt-duckdb.
     """
     pandas = sys.modules.get("pandas")
     polars = sys.modules.get("polars")
+    if polars is not None and isinstance(df, getattr(polars, "LazyFrame", ())):
+        df = df.collect()
     if isinstance(df, getattr(pandas, "DataFrame", ())):
         table = pa.Table.from_pandas(df, preserve_index=False)
     elif polars is not None and isinstance(df, getattr(polars, "DataFrame", ())):
@@ -103,9 +105,8 @@ class AltertableAdapter(SQLAdapter):
         if not connection.transaction_open:
             self.connections.begin()
         try:
-            exec(
-                compile(compiled_code, parsed_model["original_file_path"], "exec"), module.__dict__
-            )
+            code = compile(compiled_code, parsed_model["original_file_path"], "exec")
+            exec(code, module.__dict__)
             df = module.model(module.dbtObj(load_df), connection.handle)
             module.materialize(to_arrow(df), connection.handle)
         except Exception as e:

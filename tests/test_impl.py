@@ -207,9 +207,9 @@ def test_not_null_and_custom_constraints_render() -> None:
 
 
 def test_to_arrow_drops_the_pandas_index() -> None:
-    df = pd.DataFrame({"id": [1, 2, 3]})
+    df = pd.DataFrame({"id": [1, 2]}, index=["a", "b"])
 
-    assert to_arrow(df[df["id"] > 1]) == pa.table({"id": [2, 3]})
+    assert to_arrow(df) == pa.table({"id": [1, 2]})
 
 
 def test_to_arrow_accepts_arrow_while_another_thread_imports_pandas(
@@ -243,3 +243,4 @@ def test_to_arrow_returns_polars_columns_that_can_be_sized() -> None:
     assert table.to_pylist() == df.to_dicts()
     assert not pa.types.is_dictionary(table.schema.field("team").type)
     assert table.to_batches()[0].slice(0, 1).nbytes > 0
+    assert to_arrow(df.lazy()) == table

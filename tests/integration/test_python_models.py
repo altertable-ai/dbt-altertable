@@ -68,7 +68,7 @@ import pandas as pd
 
 
 def model(dbt, session):
-    df = pd.DataFrame({"id": [1, 2], "country": pd.Categorical(["fr", "de"])})
+    df = pd.DataFrame({"id": [1, 2], "country": pd.Categorical(["fr", "de"])}, index=["a", "b"])
     return df[df["id"] > 1]
 """
 

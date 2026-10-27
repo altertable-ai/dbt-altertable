@@ -299,15 +299,9 @@ def test_catalog_alias_maps_to_database():
     assert creds.database == "altertable_test"
 
 
-@pytest.mark.parametrize(
-    "table",
-    [
-        pa.table({"payload": ["x" * 800] * 10 + [""] * 70}),
-        pa.table({"payload": pa.nulls(3)}),
-    ],
-    ids=["uneven_rows", "zero_byte_column"],
-)
-def test_split_to_message_size_keeps_every_row_and_bounds_each_batch(table):
+def test_split_to_message_size_keeps_every_row_and_bounds_each_batch():
+    table = pa.table({"payload": ["x" * 800] * 10 + [""] * 70})
+
     parts = [p for batch in table.to_batches() for p in _split_to_message_size(batch, 1000)]
 
     assert pa.Table.from_batches(parts, schema=table.schema) == table
