@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import ModuleType
 from unittest.mock import MagicMock
 
+import pandas as pd
+import pyarrow as pa
 import pytest
 from dbt.context.providers import ParseDatabaseWrapper
 from dbt_common.contracts.constraints import ColumnLevelConstraint, ConstraintType
@@ -10,7 +14,7 @@ from dbt_common.exceptions import CompilationError
 from packaging.version import Version
 
 from dbt.adapters.altertable.connections import AltertableConnection
-from dbt.adapters.altertable.impl import AltertableAdapter
+from dbt.adapters.altertable.impl import AltertableAdapter, to_arrow
 from dbt.adapters.altertable.relation import AltertableRelation
 
 STRATEGIES = ["append", "delete+insert", "merge", "microbatch"]
@@ -199,3 +203,24 @@ def test_not_null_and_custom_constraints_render() -> None:
         )
         == "custom"
     )
+
+
+def test_to_arrow_drops_the_pandas_index() -> None:
+    df = pd.DataFrame({"id": [1, 2, 3]})
+
+    assert to_arrow(df[df["id"] > 1]) == pa.table({"id": [2, 3]})
+
+
+def test_to_arrow_accepts_arrow_while_another_thread_imports_pandas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table = pa.table({"id": [1]})
+    monkeypatch.setitem(sys.modules, "pandas", ModuleType("pandas"))
+
+    assert to_arrow(table) == table
+
+
+def test_to_arrow_decodes_dictionary_columns() -> None:
+    df = pd.DataFrame({"country": pd.Categorical(["fr", "de"])})
+
+    assert to_arrow(df) == pa.table({"country": ["fr", "de"]})

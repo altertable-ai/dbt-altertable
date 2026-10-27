@@ -62,17 +62,6 @@ def test_unsupported_sql_model_configs_fail_clearly(
 
 
 @pytest.mark.altertable_integration
-def test_python_models_fail_clearly(dbt_project: DbtProject) -> None:
-    dbt_project.write_project_yml()
-    (dbt_project.models_dir / f"{MODEL}.py").write_text(
-        "def model(dbt, session):\n    dbt.config(materialized='table')\n    return None\n",
-        encoding="utf-8",
-    )
-
-    _assert_fails_with(dbt_project, "Python models are not supported on Altertable")
-
-
-@pytest.mark.altertable_integration
 @pytest.mark.parametrize("constraint", ["primary_key", "unique"])
 def test_contract_with_unsupported_constraint_fails_clearly(
     dbt_project: DbtProject, constraint: str

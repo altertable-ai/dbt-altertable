@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import altertable_flightsql
 import pyarrow as pa
 import pyarrow.types as patypes
+from altertable_flightsql.client import IngestTableMode
 from dbt.adapters.contracts.connection import (
     AdapterResponse,
     Connection,
@@ -26,6 +27,17 @@ if TYPE_CHECKING:
 logger = AdapterLogger("Altertable")
 
 SESSION_EXPIRED_MESSAGE = "Session expired"
+INGEST_MESSAGE_BYTES = 1024 * 1024
+
+
+def _split_to_message_size(batch: pa.RecordBatch) -> Iterator[pa.RecordBatch]:
+    """Halve ``batch`` until each part fits ``INGEST_MESSAGE_BYTES`` or is a single row."""
+    if batch.nbytes <= INGEST_MESSAGE_BYTES or batch.num_rows <= 1:
+        yield batch
+        return
+    middle = batch.num_rows // 2
+    yield from _split_to_message_size(batch.slice(0, middle))
+    yield from _split_to_message_size(batch.slice(middle))
 
 
 def _is_session_expired(exc: BaseException) -> bool:
@@ -299,6 +311,24 @@ class AltertableConnection:
         """Create a new cursor for this connection."""
         reconnect = self._reconnect if self._connect is not None else None
         return AltertableCursor(self._client, self._transaction, reconnect=reconnect)
+
+    def ingest(self, table: pa.Table, catalog: str, schema: str, name: str) -> None:
+        """Create ``catalog.schema.name`` from ``table`` with Flight SQL bulk ingest.
+
+        An empty table still sends one empty batch: a stream without batches creates no table.
+        """
+        batches = table.to_batches() or [pa.RecordBatch.from_pylist([], schema=table.schema)]
+        with self._client.ingest(
+            table_name=name,
+            schema_name=schema,
+            catalog_name=catalog,
+            schema=table.schema,
+            mode=IngestTableMode.CREATE,
+            transaction=self._transaction,
+        ) as writer:
+            for batch in batches:
+                for part in _split_to_message_size(batch):
+                    writer.write_batch(part)
 
     def _can_reconnect(self, exc: Exception) -> bool:
         return self._connect is not None and _is_session_expired(exc)

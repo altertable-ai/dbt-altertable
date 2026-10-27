@@ -5,12 +5,15 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 from altertable_flightsql import ComputeSize
+from altertable_flightsql.client import IngestTableMode
 from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
+    INGEST_MESSAGE_BYTES,
     AltertableConnection,
     AltertableConnectionManager,
     _normalize_flight_sql_scalar,
+    _split_to_message_size,
 )
 from dbt.adapters.altertable.credentials import AltertableCredentials
 
@@ -295,3 +298,48 @@ def test_catalog_alias_maps_to_database():
     )
 
     assert creds.database == "altertable_test"
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        pa.table({"payload": ["x" * 8000] * 1000 + [""] * 7000}),
+        pa.table({"payload": pa.nulls(3)}),
+    ],
+    ids=["uneven_rows", "zero_byte_column"],
+)
+def test_split_to_message_size_keeps_every_row_and_bounds_each_batch(table):
+    batches = [part for batch in table.to_batches() for part in _split_to_message_size(batch)]
+
+    assert pa.Table.from_batches(batches, schema=table.schema) == table
+    assert all(b.nbytes <= INGEST_MESSAGE_BYTES or b.num_rows == 1 for b in batches)
+
+
+def test_ingest_joins_the_open_transaction():
+    client = MagicMock()
+    conn = AltertableConnection(client)
+    conn.begin()
+    table = pa.table({"id": [1]})
+
+    conn.ingest(table, "memory", "main", "orders")
+
+    client.ingest.assert_called_once_with(
+        table_name="orders",
+        schema_name="main",
+        catalog_name="memory",
+        schema=table.schema,
+        mode=IngestTableMode.CREATE,
+        transaction=client.begin_transaction.return_value,
+    )
+
+
+def test_ingest_of_an_empty_table_still_sends_a_batch():
+    client = MagicMock()
+    writer = client.ingest.return_value.__enter__.return_value
+    table = pa.table({"id": pa.array([], pa.int64())})
+
+    AltertableConnection(client).ingest(table, "memory", "main", "orders")
+
+    (batch,) = writer.write_batch.call_args.args
+    assert batch.schema == table.schema
+    assert batch.num_rows == 0

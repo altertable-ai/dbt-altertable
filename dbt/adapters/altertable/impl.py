@@ -1,11 +1,17 @@
 import os
+import sys
 import threading
+import traceback
 from functools import cached_property
+from types import ModuleType
 from typing import Any, ClassVar
 
+import pyarrow as pa
 from dbt.adapters.base import available
 from dbt.adapters.base.impl import ConstraintSupport
+from dbt.adapters.contracts.connection import AdapterResponse
 from dbt.adapters.duckdb.constants import DUCKLAKE_ALTER_RENAME_FIX_VERSION
+from dbt.adapters.duckdb.environments import _ensure_event_loop
 from dbt.adapters.events.logging import AdapterLogger
 from dbt.adapters.sql import SQLAdapter
 from dbt_common.contracts.constraints import (
@@ -13,13 +19,27 @@ from dbt_common.contracts.constraints import (
     ConstraintType,
     ModelLevelConstraint,
 )
-from dbt_common.exceptions import CompilationError, DbtDatabaseError
+from dbt_common.exceptions import CompilationError, DbtDatabaseError, DbtRuntimeError
 from packaging.version import Version
 
 from dbt.adapters.altertable.connections import AltertableConnectionManager
 from dbt.adapters.altertable.relation import AltertableRelation
 
 logger = AdapterLogger("Altertable")
+
+
+def to_arrow(df: Any) -> pa.Table:
+    """Convert a model result to plain Arrow columns: no pandas index, no dictionary encoding."""
+    pandas = sys.modules.get("pandas")
+    if isinstance(df, getattr(pandas, "DataFrame", ())):
+        table = pa.Table.from_pandas(df, preserve_index=False)
+    else:
+        table = pa.table(df)
+    fields = [
+        f.with_type(f.type.value_type) if pa.types.is_dictionary(f.type) else f
+        for f in table.schema
+    ]
+    return table.cast(pa.schema(fields))
 
 
 class AltertableAdapter(SQLAdapter):
@@ -62,6 +82,30 @@ class AltertableAdapter(SQLAdapter):
     @available
     def get_seed_file_path(self, model) -> str:
         return os.path.join(model["root_path"], model["original_file_path"])
+
+    def submit_python_job(self, parsed_model: dict, compiled_code: str) -> AdapterResponse:
+        """Run the model in the dbt process, inside the transaction its result is written in."""
+        connection = self.connections.get_thread_connection()
+        module = ModuleType(parsed_model["alias"])
+
+        def load_df(relation: str) -> pa.Table:
+            _, cursor = self.connections.add_select_query(f"select * from {relation}")
+            return cursor.table
+
+        _ensure_event_loop()
+        if not connection.transaction_open:
+            self.connections.begin()
+        try:
+            exec(
+                compile(compiled_code, parsed_model["original_file_path"], "exec"), module.__dict__
+            )
+            df = module.model(module.dbtObj(load_df), connection.handle)
+            module.materialize(to_arrow(df), connection.handle)
+        except Exception as e:
+            raise DbtRuntimeError(
+                f"Python model failed:\n{''.join(traceback.format_exception(e))}"
+            ) from e
+        return AdapterResponse(_message="OK")
 
     @available.parse(lambda relation: False)
     def is_ducklake(self, relation: AltertableRelation | None) -> bool:
