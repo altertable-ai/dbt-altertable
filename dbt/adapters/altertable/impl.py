@@ -29,10 +29,17 @@ logger = AdapterLogger("Altertable")
 
 
 def to_arrow(df: Any) -> pa.Table:
-    """Convert a model result to plain Arrow columns: no pandas index, no dictionary encoding."""
+    """Convert a model result to plain Arrow columns: no pandas index, views or dictionaries.
+
+    Results are split into message-sized batches by size, but pyarrow cannot size view
+    columns, which Polars emits by default, and a dictionary slice counts its whole dictionary.
+    """
     pandas = sys.modules.get("pandas")
+    polars = sys.modules.get("polars")
     if isinstance(df, getattr(pandas, "DataFrame", ())):
         table = pa.Table.from_pandas(df, preserve_index=False)
+    elif polars is not None and isinstance(df, getattr(polars, "DataFrame", ())):
+        table = df.to_arrow(compat_level=polars.CompatLevel.oldest())
     else:
         table = pa.table(df)
     fields = [

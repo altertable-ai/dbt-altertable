@@ -27,17 +27,22 @@ if TYPE_CHECKING:
 logger = AdapterLogger("Altertable")
 
 SESSION_EXPIRED_MESSAGE = "Session expired"
-INGEST_MESSAGE_BYTES = 1024 * 1024
 
 
-def _split_to_message_size(batch: pa.RecordBatch) -> Iterator[pa.RecordBatch]:
-    """Halve ``batch`` until each part fits ``INGEST_MESSAGE_BYTES`` or is a single row."""
-    if batch.nbytes <= INGEST_MESSAGE_BYTES or batch.num_rows <= 1:
+def _split_to_message_size(
+    batch: pa.RecordBatch, max_bytes: int = 1024 * 1024
+) -> Iterator[pa.RecordBatch]:
+    """Halve ``batch`` until each part is at most ``max_bytes`` or a single row.
+
+    Each part is sent as one gRPC message, and servers reject messages above their cap
+    (4 MiB on altertable-mock), so a large result cannot be sent as a single batch.
+    """
+    if batch.nbytes <= max_bytes or batch.num_rows <= 1:
         yield batch
         return
     middle = batch.num_rows // 2
-    yield from _split_to_message_size(batch.slice(0, middle))
-    yield from _split_to_message_size(batch.slice(middle))
+    yield from _split_to_message_size(batch.slice(0, middle), max_bytes)
+    yield from _split_to_message_size(batch.slice(middle), max_bytes)
 
 
 def _is_session_expired(exc: BaseException) -> bool:

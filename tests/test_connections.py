@@ -9,7 +9,6 @@ from altertable_flightsql.client import IngestTableMode
 from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
-    INGEST_MESSAGE_BYTES,
     AltertableConnection,
     AltertableConnectionManager,
     _normalize_flight_sql_scalar,
@@ -303,16 +302,16 @@ def test_catalog_alias_maps_to_database():
 @pytest.mark.parametrize(
     "table",
     [
-        pa.table({"payload": ["x" * 8000] * 1000 + [""] * 7000}),
+        pa.table({"payload": ["x" * 800] * 10 + [""] * 70}),
         pa.table({"payload": pa.nulls(3)}),
     ],
     ids=["uneven_rows", "zero_byte_column"],
 )
 def test_split_to_message_size_keeps_every_row_and_bounds_each_batch(table):
-    batches = [part for batch in table.to_batches() for part in _split_to_message_size(batch)]
+    parts = [p for batch in table.to_batches() for p in _split_to_message_size(batch, 1000)]
 
-    assert pa.Table.from_batches(batches, schema=table.schema) == table
-    assert all(b.nbytes <= INGEST_MESSAGE_BYTES or b.num_rows == 1 for b in batches)
+    assert pa.Table.from_batches(parts, schema=table.schema) == table
+    assert all(part.nbytes <= 1000 or part.num_rows == 1 for part in parts)
 
 
 def test_ingest_joins_the_open_transaction():
