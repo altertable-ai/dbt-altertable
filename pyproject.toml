@@ -39,6 +39,8 @@ metricflow = [
     "dbt-metricflow>=0.12.0",
 ]
 dev = [
+    "pandas>=2.0",
+    "polars>=1.3",
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
     "pytest-xdist>=3.7",

@@ -61,7 +61,7 @@ dbt models should use **DuckDB-compatible SQL**. Altertable executes queries via
 
 ## Compatibility with dbt-duckdb
 
-The adapter builds on [dbt-duckdb](https://github.com/duckdb/dbt-duckdb): `duckdb__` macros from your project and packages (dbt_utils, dbt_date, ...) are used automatically, so projects written for DuckDB run unchanged.
+The adapter builds on [dbt-duckdb](https://github.com/duckdb/dbt-duckdb): `duckdb__` macros from your project and packages (dbt_utils, dbt_date, ...) are used automatically.
 
 ## Incremental strategies
 
@@ -80,6 +80,16 @@ Table and incremental models accept `partitioned_by` and `sorted_by`, applied wh
 {{ config(materialized='table', partitioned_by=['year(event_at)', 'country'], sorted_by=['event_at']) }}
 ```
 
+## Python models
+
+Python table and incremental models run in the dbt process.
+
+- `dbt.ref()` and `dbt.source()` load the whole relation into memory as a `pyarrow.Table`.
+- Return anything `pyarrow.table()` accepts: pyarrow, pandas, polars or a DuckDB relation.
+- Run SQL with `session.cursor().execute(sql).table`, which returns a `pyarrow.Table`.
+
+Install packages in dbt's Python environment. Pandas indexes are not written: call `reset_index()` to keep a `groupby` key.
+
 ## Unsupported on Altertable
 
 These fail with an explicit error instead of silently producing a different model:
@@ -88,7 +98,7 @@ These fail with an explicit error instead of silently producing a different mode
 - Contract constraints other than `not_null` (`primary_key`, `unique`, `foreign_key`, `check`)
 - `grants` config
 - `external` and `table_function` materializations
-- Python models
+- `partitioned_by` and `sorted_by` on Python models
 
 ## Persisting model and column descriptions
 

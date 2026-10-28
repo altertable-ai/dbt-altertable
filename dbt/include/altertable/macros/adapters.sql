@@ -61,10 +61,8 @@
   materialization's main statement.
 #}
 {% macro altertable__create_table_as(temporary, relation, compiled_code, language='sql', partitioned_by=none, sorted_by=none) -%}
-  {%- if language != 'sql' -%}
-    {% do exceptions.raise_compiler_error(
-      "Python models are not supported on Altertable; got language '" ~ language ~ "'"
-    ) %}
+  {%- if language == 'python' -%}
+    {{ return(altertable__py_write_table(temporary, relation, compiled_code, partitioned_by, sorted_by)) }}
   {%- endif -%}
 
   {%- set contract_config = config.get('contract') -%}
@@ -114,6 +112,21 @@
     {%- endif %}
   {%- endif -%}
 {% endmacro %}
+
+{% macro altertable__py_write_table(temporary, relation, compiled_code, partitioned_by, sorted_by) -%}
+  {%- if partitioned_by or sorted_by -%}
+    {% do exceptions.raise_compiler_error(
+      "partitioned_by and sorted_by are not supported for Python models on Altertable"
+    ) %}
+  {%- endif -%}
+  {%- set catalog = 'temp' if temporary else relation.database -%}
+  {%- set schema = 'main' if temporary else relation.schema -%}
+{{ compiled_code }}
+
+
+def materialize(table, con):
+    con.ingest(table, {{ catalog | tojson }}, {{ schema | tojson }}, {{ relation.identifier | tojson }})
+{%- endmacro %}
 
 {% macro altertable__get_columns_in_relation(relation) -%}
   {% call statement('get_columns_in_relation', fetch_result=True) %}

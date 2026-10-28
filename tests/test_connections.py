@@ -5,12 +5,14 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 from altertable_flightsql import ComputeSize
+from altertable_flightsql.client import IngestTableMode
 from dbt_common.exceptions import DbtRuntimeError
 
 from dbt.adapters.altertable.connections import (
     AltertableConnection,
     AltertableConnectionManager,
     _normalize_flight_sql_scalar,
+    _split_to_message_size,
 )
 from dbt.adapters.altertable.credentials import AltertableCredentials
 
@@ -295,3 +297,42 @@ def test_catalog_alias_maps_to_database():
     )
 
     assert creds.database == "altertable_test"
+
+
+def test_split_to_message_size_keeps_every_row_and_bounds_each_batch():
+    table = pa.table({"payload": ["x" * 800] * 10 + [""] * 70})
+
+    parts = [p for batch in table.to_batches() for p in _split_to_message_size(batch, 1000)]
+
+    assert pa.Table.from_batches(parts, schema=table.schema) == table
+    assert all(part.nbytes <= 1000 or part.num_rows == 1 for part in parts)
+
+
+def test_ingest_joins_the_open_transaction():
+    client = MagicMock()
+    conn = AltertableConnection(client)
+    conn.begin()
+    table = pa.table({"id": [1]})
+
+    conn.ingest(table, "memory", "main", "orders")
+
+    client.ingest.assert_called_once_with(
+        table_name="orders",
+        schema_name="main",
+        catalog_name="memory",
+        schema=table.schema,
+        mode=IngestTableMode.CREATE,
+        transaction=client.begin_transaction.return_value,
+    )
+
+
+def test_ingest_of_an_empty_table_still_sends_a_batch():
+    client = MagicMock()
+    writer = client.ingest.return_value.__enter__.return_value
+    table = pa.table({"id": pa.array([], pa.int64())})
+
+    AltertableConnection(client).ingest(table, "memory", "main", "orders")
+
+    (batch,) = writer.write_batch.call_args.args
+    assert batch.schema == table.schema
+    assert batch.num_rows == 0

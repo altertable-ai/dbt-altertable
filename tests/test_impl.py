@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import ModuleType
 from unittest.mock import MagicMock
 
+import pandas as pd
+import polars as pl
+import pyarrow as pa
 import pytest
 from dbt.context.providers import ParseDatabaseWrapper
 from dbt_common.contracts.constraints import ColumnLevelConstraint, ConstraintType
@@ -10,7 +15,7 @@ from dbt_common.exceptions import CompilationError
 from packaging.version import Version
 
 from dbt.adapters.altertable.connections import AltertableConnection
-from dbt.adapters.altertable.impl import AltertableAdapter
+from dbt.adapters.altertable.impl import AltertableAdapter, to_arrow
 from dbt.adapters.altertable.relation import AltertableRelation
 
 STRATEGIES = ["append", "delete+insert", "merge", "microbatch"]
@@ -199,3 +204,43 @@ def test_not_null_and_custom_constraints_render() -> None:
         )
         == "custom"
     )
+
+
+def test_to_arrow_drops_the_pandas_index() -> None:
+    df = pd.DataFrame({"id": [1, 2]}, index=["a", "b"])
+
+    assert to_arrow(df) == pa.table({"id": [1, 2]})
+
+
+def test_to_arrow_accepts_arrow_while_another_thread_imports_pandas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table = pa.table({"id": [1]})
+    monkeypatch.setitem(sys.modules, "pandas", ModuleType("pandas"))
+
+    assert to_arrow(table) == table
+
+
+def test_to_arrow_decodes_dictionary_columns() -> None:
+    table = to_arrow(pa.table({"country": pa.array(["fr", "de"]).dictionary_encode()}))
+
+    assert not pa.types.is_dictionary(table.schema.field("country").type)
+    assert table.column("country").to_pylist() == ["fr", "de"]
+
+
+def test_to_arrow_returns_polars_columns_that_can_be_sized() -> None:
+    df = pl.DataFrame(
+        {
+            "name": ["Alice"],
+            "team": pl.Series(["a"], dtype=pl.Categorical),
+            "address": [{"city": "Paris"}],
+            "tags": [["x"]],
+        }
+    )
+
+    table = to_arrow(df)
+
+    assert table.to_pylist() == df.to_dicts()
+    assert not pa.types.is_dictionary(table.schema.field("team").type)
+    assert table.to_batches()[0].slice(0, 1).nbytes > 0
+    assert to_arrow(df.lazy()) == table
