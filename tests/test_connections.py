@@ -130,6 +130,19 @@ def test_begin_reopens_expired_session_and_retries():
     assert conn._transaction is new_client.begin_transaction.return_value
 
 
+def test_reconnect_logs_at_info_so_warn_error_does_not_abort_the_retry(mocker):
+    warning = mocker.patch("dbt.adapters.altertable.connections.logger.warning")
+    info = mocker.patch("dbt.adapters.altertable.connections.logger.info")
+    expired_client = MagicMock()
+    expired_client.begin_transaction.side_effect = SESSION_EXPIRED
+    conn = AltertableConnection(expired_client, connect=MagicMock(return_value=MagicMock()))
+
+    conn.begin()
+
+    warning.assert_not_called()
+    info.assert_called_once_with("Flight session expired; opening a new session")
+
+
 def test_begin_reopens_session_even_if_closing_the_expired_one_fails():
     expired_client = MagicMock()
     expired_client.begin_transaction.side_effect = SESSION_EXPIRED

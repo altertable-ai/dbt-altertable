@@ -341,7 +341,7 @@ class AltertableConnection:
     def _reconnect(self) -> altertable_flightsql.Client:
         """Replace the expired Flight session with a new client and return it."""
         assert self._connect is not None
-        logger.warning("Flight session expired; opening a new session")
+        logger.info("Flight session expired; opening a new session")
         try:
             self._client.close()
         except Exception as e:
