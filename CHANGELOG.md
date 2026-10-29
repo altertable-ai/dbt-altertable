@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.14](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.13...dbt-altertable-v0.2.14) (2026-10-28)
+
+
+### Features
+
+* support Python models ([#58](https://github.com/altertable-ai/dbt-altertable/issues/58)) ([82e6cd2](https://github.com/altertable-ai/dbt-altertable/commit/82e6cd2611e9c007771ba1df6942e3064dcd2a10))
+
 ## [0.2.13](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.12...dbt-altertable-v0.2.13) (2026-10-16)
 
 
