@@ -286,6 +286,97 @@ def test_incremental_microbatch_replaces_each_batch(
     assert rows == [{"id": 1}, {"id": 2}]
 
 
+LEFTOVERS_NAME = "integ_temp_leftovers"
+
+# Runs after the materialization commits and drops its temp relation, in the same session.
+LEFTOVERS_HOOK = (
+    'post_hook=after_commit("create or replace table '
+    "{{ this.database }}.{{ this.schema }}." + LEFTOVERS_NAME + " as "
+    "select table_name as name from duckdb_tables() where temporary "
+    "union all "
+    'select view_name from duckdb_views() where temporary and not internal"),'
+)
+
+
+def _with_leftovers_hook(sql: str) -> str:
+    return sql.replace(
+        "materialized='incremental',", "materialized='incremental',\n    " + LEFTOVERS_HOOK, 1
+    )
+
+
+@pytest.mark.altertable_integration
+@pytest.mark.parametrize(
+    ("model_name", "model_sql", "staged_as"),
+    [
+        (INC_NAME, INC_SQL, "view"),
+        (DELETE_INSERT_NAME, DELETE_INSERT_SQL, "table"),
+        (MERGE_NAME, MERGE_SQL, "table"),
+        (MICROBATCH_NAME, MICROBATCH_SQL, "view"),
+    ],
+    ids=["append", "delete+insert", "merge", "microbatch"],
+)
+def test_incremental_runs_drop_their_temp_relation(
+    dbt_project: DbtProject, flight_client: Any, model_name: str, model_sql: str, staged_as: str
+) -> None:
+    dbt_project.write_project_yml()
+    dbt_project.write_model(EVENTS_NAME, EVENTS_SQL)
+    dbt_project.write_model(model_name, _with_leftovers_hook(model_sql))
+    dbt_project.run("run", "--select", EVENTS_NAME)
+
+    window = ("--event-time-start", "2026-01-01", "--event-time-end", "2026-01-03")
+    dbt_project.run("--debug", "run", "--select", model_name, *window)
+    dbt_project.run("--debug", "run", "--select", model_name, *window)
+
+    leftovers = (
+        flight_client.query(f"select name from {dbt_project.qualify(LEFTOVERS_NAME)}")
+        .read_all()
+        .to_pylist()
+    )
+    assert leftovers == []
+    sql_log = " ".join((dbt_project.base / "logs" / "dbt.log").read_text().lower().split())
+    assert f'create temporary {staged_as} "{model_name}__dbt_tmp' in sql_log
+
+
+SELF_READING_MICROBATCH_SQL = f"""\
+{{{{ config(
+    materialized='incremental',
+    incremental_strategy='microbatch',
+    event_time='event_at',
+    begin='2026-01-01',
+    batch_size='day',
+) }}}}
+select e.id, e.event_at
+from {{{{ ref('{EVENTS_NAME}') }}}} as e
+{{% if is_incremental() %}}
+where e.id not in (select id from {{{{ this }}}} where event_at < '2026-01-01')
+{{% endif %}}
+"""
+
+
+@pytest.mark.altertable_integration
+def test_microbatch_reading_its_own_table_stages_a_temp_table(
+    dbt_project: DbtProject, flight_client: Any
+) -> None:
+    dbt_project.write_project_yml()
+    dbt_project.write_model(EVENTS_NAME, EVENTS_SQL)
+    dbt_project.write_model(MICROBATCH_NAME, SELF_READING_MICROBATCH_SQL)
+    dbt_project.run("run", "--select", EVENTS_NAME)
+
+    window = ("--event-time-start", "2026-01-01", "--event-time-end", "2026-01-03")
+    dbt_project.run("--debug", "run", "--select", MICROBATCH_NAME, *window)
+    dbt_project.run("--debug", "run", "--select", MICROBATCH_NAME, *window)
+
+    rows = (
+        flight_client.query(f"select id from {dbt_project.qualify(MICROBATCH_NAME)} order by id")
+        .read_all()
+        .to_pylist()
+    )
+    assert rows == [{"id": 1}, {"id": 2}]
+    sql_log = " ".join((dbt_project.base / "logs" / "dbt.log").read_text().lower().split())
+    assert f'create temporary table "{MICROBATCH_NAME}__dbt_tmp' in sql_log
+    assert "create temporary view" not in sql_log
+
+
 PARTITIONED_TABLE = "integ_partitioned_table"
 PARTITIONED_INC = "integ_partitioned_inc"
 

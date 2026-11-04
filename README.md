@@ -72,6 +72,8 @@ The adapter builds on [dbt-duckdb](https://github.com/duckdb/dbt-duckdb): `duckd
 | `merge`                   | `MERGE` on `unique_key` with dbt-duckdb's `merge_*` configs; at most one UPDATE or DELETE action, no `merge_returning_columns`. |
 | `microbatch`              | Replaces each `event_time` batch; batches run one at a time.                                                                    |
 
+Incremental runs stage the new rows in a temporary relation that is dropped once the run commits. SQL `append` and `microbatch` models stage a temporary view, so rows stream from the model's sources into the target without an intermediate copy; a model whose SQL names its own table (for example through `{{ this }}`) stages a temporary table instead.
+
 ## Partitioning and sort order
 
 Table and incremental models accept `partitioned_by` and `sorted_by`, applied when the table is created or fully refreshed:
