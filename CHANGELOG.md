@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.15](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.14...dbt-altertable-v0.2.15) (2026-11-04)
+
+
+### Performance Improvements
+
+* drop incremental temp relations and stage them as views when the rows are read once ([#60](https://github.com/altertable-ai/dbt-altertable/issues/60)) ([5ece51f](https://github.com/altertable-ai/dbt-altertable/commit/5ece51f02b221ee8f992c3af7f29090b0df023ff))
+
 ## [0.2.14](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.13...dbt-altertable-v0.2.14) (2026-10-28)
 
 
