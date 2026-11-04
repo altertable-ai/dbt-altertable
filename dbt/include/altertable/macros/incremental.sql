@@ -3,9 +3,8 @@
   session:
   - The temp relation is always dropped: a temporary table would otherwise hold the model's
     whole result in the session until the run ends, once per model and per microbatch batch.
-  - SQL append and microbatch models stage a temporary view, so the insert streams the model
-    into the target. A model naming its own table keeps a temporary table, because microbatch
-    deletes the batch before the insert reads the view.
+  - SQL models stage a temporary view when the strategy reads the staged rows in a single
+    statement, so the model streams into the target; see altertable__incremental_tmp_relation_type.
 #}
 {% materialization incremental, adapter="altertable", supported_languages=['sql', 'python'] -%}
 
@@ -42,13 +41,10 @@
   {{ drop_relation_if_exists(preexisting_backup_relation) }}
 
   {% set to_drop = [] %}
-  {%- set stage_as_view = language == 'sql'
-      and incremental_strategy in ['append', 'microbatch']
-      and target_relation.identifier | lower not in compiled_code | lower -%}
-  {%- set temp_relation = make_temp_relation(target_relation) -%}
-  {%- if stage_as_view -%}
-    {%- set temp_relation = temp_relation.incorporate(type='view') -%}
-  {%- endif -%}
+  {%- set tmp_relation_type = altertable__incremental_tmp_relation_type(
+      incremental_strategy, unique_key, language, target_relation, compiled_code) -%}
+  {%- set stage_as_view = tmp_relation_type == 'view' -%}
+  {%- set temp_relation = make_temp_relation(target_relation).incorporate(type=tmp_relation_type) -%}
 
   {{ run_hooks(pre_hooks, inside_transaction=False) }}
   -- `BEGIN` happens here:
@@ -122,6 +118,53 @@
   {{ return({'relations': [target_relation]}) }}
 
 {%- endmaterialization %}
+
+{#
+  Same choice as dbt-snowflake's tmp_relation_type: a view is evaluated by every statement that
+  reads it, so it is only the default when the strategy reads the staged rows once.
+  - append, merge, and delete+insert without a unique_key run a single INSERT or MERGE.
+  - delete+insert with a unique_key reads the rows for its DELETE and again for its INSERT.
+  - microbatch deletes the batch before its INSERT, which only changes the rows of a model
+    naming its own table.
+  The tmp_relation_type config overrides the choice, except where a view would change results.
+#}
+{% macro altertable__incremental_tmp_relation_type(strategy, unique_key, language, target_relation, compiled_code) -%}
+  {%- set tmp_relation_type = config.get('tmp_relation_type') -%}
+  {%- if tmp_relation_type not in [none, 'table', 'view'] -%}
+    {% do exceptions.raise_compiler_error(
+      "tmp_relation_type must be 'table' or 'view', but '" ~ tmp_relation_type ~ "' was specified."
+    ) %}
+  {%- endif -%}
+
+  {%- if language != 'sql' -%}
+    {%- if tmp_relation_type == 'view' -%}
+      {% do exceptions.raise_compiler_error(
+        "Python models only support 'table' for tmp_relation_type."
+      ) %}
+    {%- endif -%}
+    {{ return('table') }}
+  {%- endif -%}
+
+  {%- set deletes_by_key = strategy in ['default', 'delete+insert'] and unique_key -%}
+  {%- if deletes_by_key and tmp_relation_type == 'view' -%}
+    {% do exceptions.raise_compiler_error(
+      "The `" ~ strategy ~ "` strategy with a `unique_key` only supports 'table' for "
+      ~ "tmp_relation_type, because its DELETE and INSERT must read the same rows."
+    ) %}
+  {%- endif -%}
+
+  {%- if tmp_relation_type is not none -%}
+    {{ return(tmp_relation_type) }}
+  {%- elif deletes_by_key -%}
+    {{ return('table') }}
+  {%- elif strategy == 'microbatch' -%}
+    {{ return('table' if target_relation.identifier | lower in compiled_code | lower else 'view') }}
+  {%- elif strategy in ['append', 'merge', 'default', 'delete+insert'] -%}
+    {{ return('view') }}
+  {%- else -%}
+    {{ return('table') }}
+  {%- endif -%}
+{%- endmacro %}
 
 {% macro altertable__create_temporary_view_as(relation, compiled_code) -%}
   {%- if config.get('contract').enforced -%}

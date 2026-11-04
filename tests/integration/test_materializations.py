@@ -298,10 +298,14 @@ LEFTOVERS_HOOK = (
 )
 
 
-def _with_leftovers_hook(sql: str) -> str:
+def _with_config(sql: str, config: str) -> str:
     return sql.replace(
-        "materialized='incremental',", "materialized='incremental',\n    " + LEFTOVERS_HOOK, 1
+        "materialized='incremental',", "materialized='incremental',\n    " + config, 1
     )
+
+
+def _with_leftovers_hook(sql: str) -> str:
+    return _with_config(sql, LEFTOVERS_HOOK)
 
 
 @pytest.mark.altertable_integration
@@ -310,10 +314,11 @@ def _with_leftovers_hook(sql: str) -> str:
     [
         (INC_NAME, INC_SQL, "view"),
         (DELETE_INSERT_NAME, DELETE_INSERT_SQL, "table"),
-        (MERGE_NAME, MERGE_SQL, "table"),
+        (DELETE_INSERT_NAME, DELETE_INSERT_SQL.replace("    unique_key='id',\n", ""), "view"),
+        (MERGE_NAME, MERGE_SQL, "view"),
         (MICROBATCH_NAME, MICROBATCH_SQL, "view"),
     ],
-    ids=["append", "delete+insert", "merge", "microbatch"],
+    ids=["append", "delete+insert", "delete+insert-without-unique-key", "merge", "microbatch"],
 )
 def test_incremental_runs_drop_their_temp_relation(
     dbt_project: DbtProject, flight_client: Any, model_name: str, model_sql: str, staged_as: str
@@ -375,6 +380,62 @@ def test_microbatch_reading_its_own_table_stages_a_temp_table(
     sql_log = " ".join((dbt_project.base / "logs" / "dbt.log").read_text().lower().split())
     assert f'create temporary table "{MICROBATCH_NAME}__dbt_tmp' in sql_log
     assert "create temporary view" not in sql_log
+
+
+@pytest.mark.altertable_integration
+@pytest.mark.parametrize(
+    ("model_name", "model_sql", "staged_as"),
+    [
+        (INC_NAME, INC_SQL, "table"),
+        (MICROBATCH_NAME, SELF_READING_MICROBATCH_SQL, "view"),
+    ],
+    ids=["append-as-table", "self-reading-microbatch-as-view"],
+)
+def test_tmp_relation_type_overrides_the_staged_relation(
+    dbt_project: DbtProject, flight_client: Any, model_name: str, model_sql: str, staged_as: str
+) -> None:
+    dbt_project.write_project_yml()
+    dbt_project.write_model(EVENTS_NAME, EVENTS_SQL)
+    dbt_project.write_model(
+        model_name, _with_config(model_sql, f"tmp_relation_type='{staged_as}',")
+    )
+    dbt_project.run("run", "--select", EVENTS_NAME)
+
+    window = ("--event-time-start", "2026-01-01", "--event-time-end", "2026-01-03")
+    dbt_project.run("--debug", "run", "--select", model_name, *window)
+    dbt_project.run("--debug", "run", "--select", model_name, *window)
+
+    rows = (
+        flight_client.query(f"select id from {dbt_project.qualify(model_name)} order by id")
+        .read_all()
+        .to_pylist()
+    )
+    assert rows == [{"id": 1}, {"id": 2}]
+    sql_log = " ".join((dbt_project.base / "logs" / "dbt.log").read_text().lower().split())
+    assert f'create temporary {staged_as} "{model_name}__dbt_tmp' in sql_log
+
+
+@pytest.mark.altertable_integration
+@pytest.mark.parametrize(
+    ("model_sql", "tmp_relation_type", "message"),
+    [
+        (DELETE_INSERT_SQL, "view", "only supports 'table' for tmp_relation_type"),
+        (INC_SQL, "transient", "tmp_relation_type must be 'table' or 'view'"),
+    ],
+    ids=["delete+insert-with-unique-key-as-view", "unknown-type"],
+)
+def test_tmp_relation_type_rejects_invalid_choices(
+    dbt_project: DbtProject, model_sql: str, tmp_relation_type: str, message: str
+) -> None:
+    dbt_project.write_project_yml()
+    dbt_project.write_model(
+        INC_NAME, _with_config(model_sql, f"tmp_relation_type='{tmp_relation_type}',")
+    )
+
+    failed_run = dbt_project.run("run", "--select", INC_NAME, check=False)
+
+    assert failed_run.returncode != 0
+    assert message in failed_run.stdout, failed_run.stdout
 
 
 PARTITIONED_TABLE = "integ_partitioned_table"

@@ -72,7 +72,17 @@ The adapter builds on [dbt-duckdb](https://github.com/duckdb/dbt-duckdb): `duckd
 | `merge`                   | `MERGE` on `unique_key` with dbt-duckdb's `merge_*` configs; at most one UPDATE or DELETE action, no `merge_returning_columns`. |
 | `microbatch`              | Replaces each `event_time` batch; batches run one at a time.                                                                    |
 
-Incremental runs stage the new rows in a temporary relation that is dropped once the run commits. SQL `append` and `microbatch` models stage a temporary view, so rows stream from the model's sources into the target without an intermediate copy; a model whose SQL names its own table (for example through `{{ this }}`) stages a temporary table instead.
+Incremental runs stage the new rows in a temporary relation that is dropped once the run commits. Like dbt-snowflake, SQL models stage a temporary view when the strategy reads the new rows once, so they stream from the model's sources into the target without an intermediate copy, and a temporary table otherwise:
+
+| Strategy                             | Staged as                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------- |
+| `append`, `merge`                    | view                                                                      |
+| `delete+insert` without `unique_key` | view                                                                      |
+| `delete+insert` with `unique_key`    | table, so the DELETE and the INSERT read the same rows                    |
+| `microbatch`                         | view, or table when the model names its own table (e.g. via `{{ this }}`) |
+| Python models                        | table                                                                     |
+
+Set `tmp_relation_type` to `table` or `view` to override the choice; `delete+insert` with a `unique_key` and Python models only accept `table`.
 
 ## Partitioning and sort order
 
