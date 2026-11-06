@@ -161,6 +161,11 @@ class AltertableAdapter(SQLAdapter):
         # Required by dbt-duckdb; only MotherDuck uses the batch suffix.
         return ""
 
+    @available
+    def catalog_supports_foreign_keys(self, database: str) -> bool:
+        # Required by dbt-duckdb >= 1.11.1; foreign key constraints are rejected at parse time.
+        return False
+
     @cached_property
     def server_duckdb_version(self) -> Version:
         _, cursor = self.connections.add_select_query("select version()")

@@ -57,6 +57,10 @@ def test_adapter_is_never_motherduck_and_keeps_transactions_enabled() -> None:
     assert adapter.disable_transactions() is False
 
 
+def test_no_catalog_supports_foreign_keys() -> None:
+    assert _adapter().catalog_supports_foreign_keys("memory") is False
+
+
 def test_ducklake_catalog_names_are_loaded_once_per_connection() -> None:
     adapter = _adapter()
     adapter.connections = MagicMock()
