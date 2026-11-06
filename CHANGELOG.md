@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.16](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.15...dbt-altertable-v0.2.16) (2026-11-06)
+
+
+### Bug Fixes
+
+* support dbt-duckdb 1.11.1 ([#62](https://github.com/altertable-ai/dbt-altertable/issues/62)) ([d467d8a](https://github.com/altertable-ai/dbt-altertable/commit/d467d8aa631b24cdb6cda1548b94c65e6536c2de))
+
 ## [0.2.15](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.14...dbt-altertable-v0.2.15) (2026-11-04)
 
 
