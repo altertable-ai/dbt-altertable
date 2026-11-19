@@ -88,6 +88,10 @@ class AltertableAdapter(SQLAdapter):
             )
         return super().process_parsed_constraint(parsed_constraint, render_func)
 
+    def expand_column_types(self, goal, current) -> None:
+        # DuckDB ignores VARCHAR(n) length, so string columns never need widening.
+        return
+
     @available
     def get_seed_file_path(self, model) -> str:
         return os.path.join(model["root_path"], model["original_file_path"])

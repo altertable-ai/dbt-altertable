@@ -61,6 +61,17 @@ def test_no_catalog_supports_foreign_keys() -> None:
     assert _adapter().catalog_supports_foreign_keys("memory") is False
 
 
+def test_expand_target_column_types_does_not_query() -> None:
+    adapter = _adapter()
+    adapter.get_columns_in_relation = MagicMock()
+    staging = AltertableRelation.create(identifier="orders__tmp")
+    target = AltertableRelation.create(identifier="orders")
+
+    adapter.expand_target_column_types(from_relation=staging, to_relation=target)
+
+    adapter.get_columns_in_relation.assert_not_called()
+
+
 def test_ducklake_catalog_names_are_loaded_once_per_connection() -> None:
     adapter = _adapter()
     adapter.connections = MagicMock()
