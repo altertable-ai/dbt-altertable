@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.17](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.16...dbt-altertable-v0.2.17) (2026-11-19)
+
+
+### Performance Improvements
+
+* skip no-op column type expansion on incremental and snapshot runs ([#64](https://github.com/altertable-ai/dbt-altertable/issues/64)) ([98a14e4](https://github.com/altertable-ai/dbt-altertable/commit/98a14e45fac6285f799e6a1f3d9d34aa3eb46d95))
+
 ## [0.2.16](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.15...dbt-altertable-v0.2.16) (2026-11-06)
 
 
