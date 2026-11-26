@@ -76,7 +76,7 @@ def test_persist_docs_comments_roundtrip(dbt_project: DbtProject, flight_client:
 
 
 @pytest.mark.altertable_integration
-def test_persist_docs_column_comments_on_view_fail_clearly(dbt_project: DbtProject) -> None:
+def test_persist_docs_column_comments_on_view(dbt_project: DbtProject, flight_client: Any) -> None:
     dbt_project.write_project_yml(
         models={"+persist_docs": {"relation": True, "columns": True}},
     )
@@ -85,9 +85,20 @@ def test_persist_docs_column_comments_on_view_fail_clearly(dbt_project: DbtProje
     )
     dbt_project.write_models_yml("_persist_docs_view_models", VIEW_MODELS_YML)
 
-    proc = dbt_project.run("run", "--select", VIEW_MODEL, check=False)
+    dbt_project.run("run", "--select", VIEW_MODEL)
+    dbt_project.run("run", "--select", VIEW_MODEL)
 
-    assert proc.returncode != 0, "expected dbt run to fail when persisting column docs on a view"
-    combined = f"{proc.stdout}\n{proc.stderr}"
-    assert "COMMENT ON COLUMN for views" in combined
-    assert "persist_docs" in combined.lower()
+    db, schema = dbt_project.db, dbt_project.schema
+    q_cols = (
+        "select column_name, comment from duckdb_columns() "
+        f"where lower(database_name) = lower({sql_string_literal(db)}) "
+        f"and lower(schema_name) = lower({sql_string_literal(schema)}) "
+        f"and lower(table_name) = lower({sql_string_literal(VIEW_MODEL)}) "
+        "order by column_index"
+    )
+    by_name = {
+        row["column_name"]: row["comment"]
+        for row in flight_client.query(q_cols).read_all().to_pylist()
+    }
+    assert by_name.get("id") == "Column id doc"
+    assert by_name.get("msg") == "Column msg doc"
