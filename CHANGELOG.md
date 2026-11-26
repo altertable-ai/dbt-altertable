@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.17](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.16...dbt-altertable-v0.2.17) (2026-11-26)
+
+
+### Features
+
+* **persist_docs:** persist column comments on views ([#66](https://github.com/altertable-ai/dbt-altertable/issues/66)) ([4dcaf7e](https://github.com/altertable-ai/dbt-altertable/commit/4dcaf7e572c1aa0349d930824e8fa37a99f6a66a))
+
+
+### Performance Improvements
+
+* skip no-op column type expansion on incremental and snapshot runs ([#64](https://github.com/altertable-ai/dbt-altertable/issues/64)) ([98a14e4](https://github.com/altertable-ai/dbt-altertable/commit/98a14e45fac6285f799e6a1f3d9d34aa3eb46d95))
+
 ## [0.2.16](https://github.com/altertable-ai/dbt-altertable/compare/dbt-altertable-v0.2.15...dbt-altertable-v0.2.16) (2026-11-06)
 
 
